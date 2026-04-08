@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/ingestion",
+    "crates/transformation",
+    "crates/semantic-layer",
+    "crates/vector-store",
+    "crates/ai-agent",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Akul Marwaha"]
+description = "Scalable data-driven solution for synthesizing operational and financial data."
