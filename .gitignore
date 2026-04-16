@@ -1,0 +1,11 @@
+# Environment variables — never commit
+.env
+
+# Generated data — too large and regenerable
+data/
+
+# Rust build artifacts
+target/
+
+# macOS system files
+.DS_Store

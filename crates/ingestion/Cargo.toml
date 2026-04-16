@@ -4,3 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+optima-core = { path = "../core", package = "core" }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["stream"] }
+dotenvy = "0.15"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
