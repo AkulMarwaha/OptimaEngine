@@ -4,3 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+optima-core = { path = "../core", package = "core" }
+polars = { version = "0.46", features = [
+    "csv",
+    "parquet",
+    "lazy",
+    "dtype-date",
+    "streaming",
+] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15"
+tokio = { version = "1", features = ["full"] }
