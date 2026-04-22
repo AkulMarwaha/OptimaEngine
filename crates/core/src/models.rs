@@ -1,55 +1,115 @@
 use serde::Deserialize;
 
-/// VBAK — SAP Sales Header
-/// Matches Mockaroo schema: SAP_Sales_Header
-/// Fields: vbeln | erdat | kunnr | waerk | vtweg | common_batch_id
+/// VBAK — SAP Sales Header (enriched)
 #[derive(Debug, Deserialize)]
 pub struct SalesHeader {
-    /// Row Number — primary key / join key to SalesItem
     pub vbeln: u64,
-
-    /// Order creation date, format mm/dd/yyyy — 2% of rows will be blank
     pub erdat: Option<String>,
-
-    /// Customer number, range 10000–99999, no decimals
     pub kunnr: u32,
-
-    /// Currency code — one of: "USD", "EUR", "GBP"
     pub waerk: String,
-
-    /// Distribution channel — one of: "10 (Wholesale)", "20 (Retail)"
     pub vtweg: String,
-
-    /// Batch correlation ID, range 5000–6000, no decimals
     pub common_batch_id: u32,
+    pub auart: String,
+    pub vkorg: String,
+    pub spart: String,
+    pub bstnk: String,
+    pub vsbed: String,
+    pub zterm: String,
+    pub lifsk: String,
+    pub faksk: String,
+    pub pay_method: String,
+    pub pay_status: String,
+    pub auth_status: String,
+    pub discount_code: String,
 }
 
-/// VBAP — SAP Sales Items
-/// Matches Mockaroo schema: SAP_Sales_Items
-/// Fields: vbeln | posnr | matnr | zmeng | netpr | netwr | estimated_cost
+/// VBAP — SAP Sales Items (enriched)
 #[derive(Debug, Deserialize)]
 pub struct SalesItem {
-    /// Row Number — foreign key → SalesHeader.vbeln
     pub vbeln: u64,
-
-    /// Line item position — one of: 10, 20, 30
     pub posnr: u32,
-
-    /// Material number — one of: "MAT-01", "MAT-02", "MAT-03"
     pub matnr: String,
-
-    /// Order quantity, range 1–100, no decimals
     pub zmeng: u32,
-
-    /// Net price per unit, range 50.00–1000.00, 2 decimal places
     pub netpr: f64,
-
-    /// Net value — Mockaroo formula: zmeng * netpr
     pub netwr: f64,
-
-    /// Estimated cost — Mockaroo formula:
-    /// MAT-01 → netpr * 0.95  (5% margin squeeze simulation)
-    /// MAT-02 → netpr * 0.88  (truncated in UI, assumed standard discount)
-    /// MAT-03 → netpr * 0.80  (assumed — full formula hidden in screenshot)
     pub estimated_cost: f64,
+    pub werks: String,
+    pub lgort: String,
+    pub pstyv: String,
+    pub abgru: String,
+    pub bonus: f64,
+    pub mwsbp: f64,
+    pub kwmeng: u32,
+    pub lmeng: u32,
+    pub route: String,
+    pub vstel: String,
+}
+
+/// KNA1 — SAP Customer Master
+#[derive(Debug, Deserialize)]
+pub struct CustomerMaster {
+    pub kunnr: u32,
+    pub name1: String,
+    pub land1: String,
+    pub regio: String,
+    pub kukla: String,
+    pub kraus: String,
+    pub klkla: String,
+    pub waers: String,
+    pub zterm: String,
+    pub vkorg: String,
+    pub industry: String,
+    pub region_grp: String,
+    pub since_year: u32,
+}
+
+/// MARA — SAP Material Master
+#[derive(Debug, Deserialize)]
+pub struct MaterialMaster {
+    pub matnr: String,
+    pub maktx: String,
+    pub matkl: String,
+    pub mtart: String,
+    pub meins: String,
+    pub mvgr1: String,
+    pub labor_cost_pct: f64,
+    pub overhead_pct: f64,
+    pub brgew: f64,
+    pub mtpos_mara: String,
+    pub mfrnr: String,
+    pub ersda: String,
+}
+
+/// COPA — SAP Controlling / Profitability Analysis
+#[derive(Debug, Deserialize)]
+pub struct Controlling {
+    pub vbeln: u64,
+    pub kostl: u32,
+    pub prctr: String,
+    pub kokrs: String,
+    pub gjahr: String,
+    pub poper: u32,
+    pub kstar: String,
+    pub wkgbtr: f64,
+    pub budget_amt: f64,
+    pub variance_amt: f64,
+    pub abtei: String,
+    pub segment: String,
+}
+
+/// LIKP — SAP Delivery
+#[derive(Debug, Deserialize)]
+pub struct Delivery {
+    pub vbeln_delivery: u64,
+    pub vbeln_order: u64,
+    pub kunnr: u32,
+    pub wadat_ist: String,
+    pub lddat: String,
+    pub tddat: String,
+    pub vstel: String,
+    pub route: String,
+    pub traty: String,
+    pub freight_cost: f64,
+    pub delivery_status: String,
+    pub days_late: f64,
 }
