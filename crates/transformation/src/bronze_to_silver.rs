@@ -16,21 +16,19 @@ pub fn run(bronze_path: &str, silver_path: &str) -> anyhow::Result<()> {
     let header_df = read_csv(&bronze.join("SAP_Sales_Header.csv"))?;
     let items_df = read_csv(&bronze.join("SAP_Sales_Items.csv"))?;
 
-    // Deduplicate Customer Master on kunnr using lazy API
     let customer_df = read_csv(&bronze.join("SAP_Customer_Master.csv"))?
         .lazy()
-        .group_by([col("kunnr")])
+        .group_by([col("scm_customer_id")])
         .agg([col("*").first()])
         .collect()
-        .context("Failed to deduplicate Customer Master on kunnr")?;
+        .context("Failed to deduplicate Customer Master on scm_customer_id")?;
 
-    // Deduplicate Material Master on matnr using lazy API
     let material_df = read_csv(&bronze.join("SAP_Material_Master.csv"))?
         .lazy()
-        .group_by([col("matnr")])
+        .group_by([col("smm_material_id")])
         .agg([col("*").first()])
         .collect()
-        .context("Failed to deduplicate Material Master on matnr")?;
+        .context("Failed to deduplicate Material Master on smm_material_id")?;
 
     let controlling_df = read_csv(&bronze.join("SAP_Controlling.csv"))?;
     let delivery_df = read_csv(&bronze.join("SAP_Delivery.csv"))?;
@@ -42,50 +40,50 @@ pub fn run(bronze_path: &str, silver_path: &str) -> anyhow::Result<()> {
         controlling_df.height(), delivery_df.height()
     );
 
-    // --- Step 1: Inner join Sales Header + Items on vbeln ---
+    // --- Step 1: Inner join Sales Header + Items on order_id ---
     let sales = header_df
         .join(
             &items_df,
-            ["vbeln"],
-            ["vbeln"],
+            ["ssh_order_id"],
+            ["ssi_order_id"],
             JoinArgs::new(JoinType::Inner),
             None,
         )
-        .context("Failed to inner join Header and Items on vbeln")?;
+        .context("Failed to inner join Header and Items on order_id")?;
 
     info!("After Header ⋈ Items (inner): {} rows", sales.height());
 
-    // --- Step 2: Left join with Customer Master on kunnr ---
+    // --- Step 2: Left join with Customer Master on customer_id ---
     let sales = sales
         .join(
             &customer_df,
-            ["kunnr"],
-            ["kunnr"],
+            ["ssh_customer_id"],
+            ["scm_customer_id"],
             JoinArgs::new(JoinType::Left),
             None,
         )
-        .context("Failed to left join with Customer Master on kunnr")?;
+        .context("Failed to left join with Customer Master on customer_id")?;
 
     info!("After ⋈ Customer Master (left): {} rows", sales.height());
 
-    // --- Step 3: Left join with Material Master on matnr ---
+    // --- Step 3: Left join with Material Master on material_id ---
     let sales = sales
         .join(
             &material_df,
-            ["matnr"],
-            ["matnr"],
+            ["ssi_material_id"],
+            ["smm_material_id"],
             JoinArgs::new(JoinType::Left),
             None,
         )
-        .context("Failed to left join with Material Master on matnr")?;
+        .context("Failed to left join with Material Master on material_id")?;
 
     info!("After ⋈ Material Master (left): {} rows", sales.height());
 
     // --- Step 4: Compute enrichment columns ---
-    let netwr_ca = sales.column("netwr")?.f64()?;
-    let estimated_cost_ca = sales.column("estimated_cost")?.f64()?;
-    let waerk_ca = sales.column("waerk")?.str()?;
-    let matnr_ca = sales.column("matnr")?.str()?;
+    let netwr_ca = sales.column("ssi_net_value")?.f64()?;
+    let estimated_cost_ca = sales.column("ssi_estimated_cost")?.f64()?;
+    let waerk_ca = sales.column("ssh_currency")?.str()?;
+    let matnr_ca = sales.column("ssi_material_id")?.str()?;
 
     let netwr_usd: Vec<f64> = netwr_ca
         .into_iter()
