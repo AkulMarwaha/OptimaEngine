@@ -5,40 +5,45 @@ use tracing::info;
 
 use crate::compute::{is_margin_squeeze, margin_pct, to_usd};
 
-/// Run the Bronze → Silver transformation.
-///
-/// Reads SAP_Sales_Header.csv and SAP_Sales_Items.csv from the bronze path,
-/// performs an inner join on `vbeln`, enriches with margin and currency columns,
-/// and writes the result to data/silver/sales_enriched.parquet.
 pub fn run(bronze_path: &str, silver_path: &str) -> anyhow::Result<()> {
     info!("Starting Bronze → Silver transformation");
 
-    // --- Read Bronze CSVs ---
-    let header_path = Path::new(bronze_path).join("SAP_Sales_Header.csv");
-    let items_path = Path::new(bronze_path).join("SAP_Sales_Items.csv");
+    let bronze = Path::new(bronze_path);
+    let silver = Path::new(silver_path);
+    std::fs::create_dir_all(silver)?;
 
-    info!("Reading SAP_Sales_Header from {:?}", header_path);
-    let header_df = CsvReadOptions::default()
-        .with_has_header(true)
-        .try_into_reader_with_file_path(Some(header_path))?
-        .finish()
-        .context("Failed to read SAP_Sales_Header.csv")?;
+    // --- Read all Bronze CSVs ---
+    let header_df = read_csv(&bronze.join("SAP_Sales_Header.csv"))?;
+    let items_df = read_csv(&bronze.join("SAP_Sales_Items.csv"))?;
 
-    info!("Reading SAP_Sales_Items from {:?}", items_path);
-    let items_df = CsvReadOptions::default()
-        .with_has_header(true)
-        .try_into_reader_with_file_path(Some(items_path))?
-        .finish()
-        .context("Failed to read SAP_Sales_Items.csv")?;
+    // Deduplicate Customer Master on kunnr using lazy API
+    let customer_df = read_csv(&bronze.join("SAP_Customer_Master.csv"))?
+        .lazy()
+        .group_by([col("kunnr")])
+        .agg([col("*").first()])
+        .collect()
+        .context("Failed to deduplicate Customer Master on kunnr")?;
+
+    // Deduplicate Material Master on matnr using lazy API
+    let material_df = read_csv(&bronze.join("SAP_Material_Master.csv"))?
+        .lazy()
+        .group_by([col("matnr")])
+        .agg([col("*").first()])
+        .collect()
+        .context("Failed to deduplicate Material Master on matnr")?;
+
+    let controlling_df = read_csv(&bronze.join("SAP_Controlling.csv"))?;
+    let delivery_df = read_csv(&bronze.join("SAP_Delivery.csv"))?;
 
     info!(
-        "Bronze loaded — Header: {} rows, Items: {} rows",
-        header_df.height(),
-        items_df.height()
+        "Bronze loaded — Header: {} rows, Items: {} rows, Customer: {} rows (deduped), Material: {} rows (deduped), Controlling: {} rows, Delivery: {} rows",
+        header_df.height(), items_df.height(),
+        customer_df.height(), material_df.height(),
+        controlling_df.height(), delivery_df.height()
     );
 
-    // --- Inner Join on vbeln ---
-    let joined = header_df
+    // --- Step 1: Inner join Sales Header + Items on vbeln ---
+    let sales = header_df
         .join(
             &items_df,
             ["vbeln"],
@@ -46,57 +51,73 @@ pub fn run(bronze_path: &str, silver_path: &str) -> anyhow::Result<()> {
             JoinArgs::new(JoinType::Inner),
             None,
         )
-        .context("Failed to join Header and Items on vbeln")?;
+        .context("Failed to inner join Header and Items on vbeln")?;
 
-    info!("Joined DataFrame: {} rows", joined.height());
+    info!("After Header ⋈ Items (inner): {} rows", sales.height());
 
-    // --- Enrich: Currency Normalization + Margin Calculation ---
-    // Extract columns needed for enrichment
-    let netwr_ca = joined.column("netwr")?.f64()?;
-    let estimated_cost_ca = joined.column("estimated_cost")?.f64()?;
-    let waerk_ca = joined.column("waerk")?.str()?;
-    let matnr_ca = joined.column("matnr")?.str()?;
+    // --- Step 2: Left join with Customer Master on kunnr ---
+    let sales = sales
+        .join(
+            &customer_df,
+            ["kunnr"],
+            ["kunnr"],
+            JoinArgs::new(JoinType::Left),
+            None,
+        )
+        .context("Failed to left join with Customer Master on kunnr")?;
 
-    // Compute netwr_usd — currency normalized net value
+    info!("After ⋈ Customer Master (left): {} rows", sales.height());
+
+    // --- Step 3: Left join with Material Master on matnr ---
+    let sales = sales
+        .join(
+            &material_df,
+            ["matnr"],
+            ["matnr"],
+            JoinArgs::new(JoinType::Left),
+            None,
+        )
+        .context("Failed to left join with Material Master on matnr")?;
+
+    info!("After ⋈ Material Master (left): {} rows", sales.height());
+
+    // --- Step 4: Compute enrichment columns ---
+    let netwr_ca = sales.column("netwr")?.f64()?;
+    let estimated_cost_ca = sales.column("estimated_cost")?.f64()?;
+    let waerk_ca = sales.column("waerk")?.str()?;
+    let matnr_ca = sales.column("matnr")?.str()?;
+
     let netwr_usd: Vec<f64> = netwr_ca
         .into_iter()
         .zip(waerk_ca.into_iter())
-        .map(|(netwr, currency)| {
-            to_usd(netwr.unwrap_or(0.0), currency.unwrap_or("USD"))
-        })
+        .map(|(n, c)| to_usd(n.unwrap_or(0.0), c.unwrap_or("USD")))
         .collect();
 
-    // Compute estimated_cost_usd
     let cost_usd: Vec<f64> = estimated_cost_ca
         .into_iter()
         .zip(waerk_ca.into_iter())
-        .map(|(cost, currency)| {
-            to_usd(cost.unwrap_or(0.0), currency.unwrap_or("USD"))
-        })
+        .map(|(c, cur)| to_usd(c.unwrap_or(0.0), cur.unwrap_or("USD")))
         .collect();
 
-    // Compute margin_pct column
     let margins: Vec<f64> = netwr_usd
         .iter()
         .zip(cost_usd.iter())
-        .map(|(netwr, cost)| margin_pct(*netwr, *cost))
+        .map(|(n, c)| margin_pct(*n, *c))
         .collect();
 
-    // Compute margin_squeeze flag
     let squeeze_flags: Vec<bool> = margins
         .iter()
         .map(|m| is_margin_squeeze(*m))
         .collect();
 
-    // Compute margin_squeeze_material flag (MAT-01 specific)
     let mat01_squeeze: Vec<bool> = matnr_ca
         .into_iter()
         .zip(margins.iter())
-        .map(|(matnr, margin)| matnr.unwrap_or("") == "MAT-01" && margin < &6.0)
+        .map(|(m, margin)| m.unwrap_or("") == "MAT-01" && *margin < 6.0)
         .collect();
 
-    // --- Build enriched DataFrame ---
-    let mut enriched = joined;
+    // --- Step 5: Add enrichment columns ---
+    let mut enriched = sales;
     enriched.with_column(Series::new("netwr_usd".into(), netwr_usd))?;
     enriched.with_column(Series::new("estimated_cost_usd".into(), cost_usd))?;
     enriched.with_column(Series::new("margin_pct".into(), margins))?;
@@ -104,22 +125,42 @@ pub fn run(bronze_path: &str, silver_path: &str) -> anyhow::Result<()> {
     enriched.with_column(Series::new("is_mat01_squeeze".into(), mat01_squeeze))?;
 
     info!(
-        "Enriched DataFrame: {} rows, {} columns",
+        "Sales enriched: {} rows, {} columns",
         enriched.height(),
         enriched.width()
     );
 
-    // --- Write Silver Parquet ---
-    let silver_dir = Path::new(silver_path);
-    std::fs::create_dir_all(silver_dir)?;
+    // --- Write Silver Parquet files ---
+    write_parquet(&mut enriched, &silver.join("sales_enriched.parquet"))?;
+    info!("✅ sales_enriched.parquet written");
 
-    let output_path = silver_dir.join("sales_enriched.parquet");
-    let mut file = std::fs::File::create(&output_path)?;
+    write_parquet(
+        &mut controlling_df.clone(),
+        &silver.join("controlling_enriched.parquet"),
+    )?;
+    info!("✅ controlling_enriched.parquet written");
 
+    write_parquet(
+        &mut delivery_df.clone(),
+        &silver.join("delivery_enriched.parquet"),
+    )?;
+    info!("✅ delivery_enriched.parquet written");
+
+    Ok(())
+}
+
+fn read_csv(path: &Path) -> anyhow::Result<DataFrame> {
+    CsvReadOptions::default()
+        .with_has_header(true)
+        .try_into_reader_with_file_path(Some(path.to_path_buf()))?
+        .finish()
+        .with_context(|| format!("Failed to read CSV: {:?}", path))
+}
+
+fn write_parquet(df: &mut DataFrame, path: &Path) -> anyhow::Result<()> {
+    let mut file = std::fs::File::create(path)?;
     ParquetWriter::new(&mut file)
-        .finish(&mut enriched)
-        .context("Failed to write silver Parquet file")?;
-
-    info!("✅ Silver layer written → {:?}", output_path);
+        .finish(df)
+        .with_context(|| format!("Failed to write Parquet: {:?}", path))?;
     Ok(())
 }
