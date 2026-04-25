@@ -1,3 +1,4 @@
+use polars::prelude::*;
 use axum::{extract::State, http::StatusCode, Json};
 use polars::prelude::*;
 use std::{io::Cursor, sync::Arc};
@@ -18,10 +19,21 @@ fn read_gold(gold_path: &str, filename: &str) -> Result<DataFrame, PolarsError> 
 fn df_to_json(df: &mut DataFrame) -> Result<serde_json::Value, String> {
     let mut buf = Cursor::new(Vec::new());
     JsonWriter::new(&mut buf)
+        .with_json_format(JsonFormat::JsonLines)
         .finish(df)
         .map_err(|e| e.to_string())?;
+
     let raw = String::from_utf8(buf.into_inner()).map_err(|e| e.to_string())?;
-    serde_json::from_str(&raw).map_err(|e| e.to_string())
+
+    // Parse newline-delimited JSON into a Vec of objects
+    let records: Vec<serde_json::Value> = raw
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(serde_json::Value::Array(records))
 }
 
 pub async fn health() -> Json<serde_json::Value> {
