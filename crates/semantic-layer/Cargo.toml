@@ -3,4 +3,17 @@ name = "semantic-layer"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "semantic-layer"
+path = "src/main.rs"
+
 [dependencies]
+optima-core = { path = "../core", package = "core" }
+axum = { version = "0.7", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+polars = { version = "0.46", features = ["lazy", "parquet", "json"] }
+serde_json = "1"
+tower-http = { version = "0.5", features = ["cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+dotenvy = "0.15"
