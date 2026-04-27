@@ -97,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
 
         // Step 3 — ask model to interpret the data
         let prompt = format!(
-            "User question: {}\n\nERP data (JSON):\n{}\n\nAnswer the question based on this data.",
+            "User question: {}\n\nERP data (JSON):\n{}\n\nAnswer the question based on this data. /no_think",
             question, data
         );
 

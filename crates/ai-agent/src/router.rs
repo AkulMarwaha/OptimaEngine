@@ -20,13 +20,20 @@ Q: How is the retail channel performing? → margin_channel
 Q: Is the logistics department over budget? → budget_variance
 Q: How many deliveries were late on route R002? → delivery_performance
 Q: Which region has the highest revenue? → margin_segment
+Q: What would you tell our board of directors? → budget_variance
+Q: Give me a full business health check → margin_material
+Q: What is our biggest risk? → margin_material
+Q: Where are we losing the most money? → margin_material
+Q: What should our CEO or CFO know? → budget_variance
+Q: Summarise our financial performance → budget_variance
 "#;
 
 pub async fn route_question(
     ollama: &OllamaClient,
     question: &str,
 ) -> anyhow::Result<String> {
-    let endpoint = ollama.ask(ROUTING_SYSTEM, question).await?;
+    let prompt = format!("{} /no_think", question);
+    let endpoint = ollama.ask(ROUTING_SYSTEM, &prompt).await?;
     let cleaned = endpoint.trim().to_lowercase();
     tracing::info!("Routed '{}' → {}", question, cleaned);
     Ok(cleaned)
