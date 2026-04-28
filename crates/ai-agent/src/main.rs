@@ -19,6 +19,7 @@ Focus on the most important insight. Highlight anything that looks like a proble
 - If budget variance is positive (over budget), flag it with the dollar amount
 - If avg_days_late is above 5, flag the route as critical
 - Always reference min_margin_pct when discussing squeeze risk, not avg_margin_pct
+- IMPORTANT: Only flag margin squeeze if the data contains min_margin_pct field. Budget and delivery data does NOT contain margin fields — never invent margin squeeze flags for those datasets.
 Keep your answer under 100 words. Be specific with numbers. Do not repeat raw JSON.
 "#;
 

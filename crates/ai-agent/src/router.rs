@@ -26,6 +26,12 @@ Q: What is our biggest risk? → margin_material
 Q: Where are we losing the most money? → margin_material
 Q: What should our CEO or CFO know? → budget_variance
 Q: Summarise our financial performance → budget_variance
+Q: Which problem should we fix first? → margin_material
+Q: What is our top priority? → margin_material
+Q: What needs immediate attention? → budget_variance
+Q: Give me a full business health check → budget_variance
+Q: What is the overall state of the business? → budget_variance
+Q: Summarise everything → budget_variance
 "#;
 
 pub async fn route_question(
