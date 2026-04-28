@@ -47,3 +47,4 @@ impl OllamaClient {
         Ok(res.response.trim().to_string())
     }
 }
+

@@ -13,11 +13,13 @@ You are an ERP analytics assistant for Optima Engine.
 You will be given a user question and a JSON dataset from an ERP analytics API.
 Your job is to answer the question clearly and concisely in plain English.
 Focus on the most important insight. Highlight anything that looks like a problem.
-- If any margin is below 10%, flag it as a margin squeeze risk.
-- If budget variance is positive (over budget), flag it.
-- If delivery days late is above 5, flag it.
-Keep your answer under 100 words unless the user asks for detail.
-Do not repeat the raw numbers back — interpret them.
+- The key margin fields are: avg_margin_pct, min_margin_pct, squeeze_count
+- If min_margin_pct is below 10%, flag it as a CRITICAL margin squeeze risk
+- If squeeze_count is above 0, flag it as at risk
+- If budget variance is positive (over budget), flag it with the dollar amount
+- If avg_days_late is above 5, flag the route as critical
+- Always reference min_margin_pct when discussing squeeze risk, not avg_margin_pct
+Keep your answer under 100 words. Be specific with numbers. Do not repeat raw JSON.
 "#;
 
 fn endpoint_url(endpoint: &str) -> Option<&'static str> {
@@ -46,15 +48,16 @@ async fn main() -> anyhow::Result<()> {
     let ollama_url = std::env::var("AI_AGENT_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:11434".to_string());
     let ollama_model = std::env::var("AI_AGENT_MODEL")
-        .unwrap_or_else(|_| "qwen3:4b".to_string());
+        .unwrap_or_else(|_| "qwen3:1.7b".to_string());
 
     let ollama = OllamaClient::new(&ollama_url, &ollama_model);
     let http   = reqwest::Client::new();
 
     println!("\n╔═══════════════════════════════════════╗");
     println!("║     Optima Engine — AI Agent          ║");
-    println!("║     Model: {:>26} ║", ollama_model);
+    println!("│     Model:   {:>26} │", ollama_model);
     println!("║     API:   {:>26} ║", SEMANTIC_BASE);
+    println!("│     Backend: {:>24} │", "ollama");
     println!("╚═══════════════════════════════════════╝\n");
     println!("Ask me anything about your ERP data. Ctrl+C to exit.\n");
 
@@ -68,10 +71,10 @@ async fn main() -> anyhow::Result<()> {
         let question = question.trim();
         if question.is_empty() { continue; }
 
-        // Step 1 — route to the right endpoint
         print!("Agent: thinking...");
         io::stdout().flush()?;
 
+        // Step 1 — route using Ollama (fast, one word response)
         let endpoint_key = match route_question(&ollama, question).await {
             Ok(k) => k,
             Err(e) => {
@@ -95,13 +98,15 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-        // Step 3 — ask model to interpret the data
+        // Step 3 — explain using selected backend
         let prompt = format!(
             "User question: {}\n\nERP data (JSON):\n{}\n\nAnswer the question based on this data. /no_think",
             question, data
         );
 
-        match ollama.ask(EXPLAIN_SYSTEM, &prompt).await {
+       let result = ollama.ask(EXPLAIN_SYSTEM, &prompt).await;
+
+        match result {
             Ok(answer) => println!("\rAgent: {}\n", answer),
             Err(e)     => println!("\rAgent: Model error — {}\n", e),
         }
