@@ -56,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
 
     println!("\n╔═══════════════════════════════════════╗");
     println!("║     Optima Engine — AI Agent          ║");
-    println!("│     Model:   {:>26} │", ollama_model);
+    println!("│     Model: {:>26} │", ollama_model);
     println!("║     API:   {:>26} ║", SEMANTIC_BASE);
     println!("│     Backend: {:>24} │", "ollama");
     println!("╚═══════════════════════════════════════╝\n");
