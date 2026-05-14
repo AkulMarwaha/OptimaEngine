@@ -220,6 +220,7 @@ pub fn validate_silver_controlling(df: &DataFrame) -> anyhow::Result<()> {
 }
 
 /// Validate the Delivery DataFrame (pass-through to Silver).
+/// Uses cast() to handle Mockaroo sending sdl_days_late as i64 instead of f64.
 pub fn validate_silver_delivery(df: &DataFrame) -> anyhow::Result<()> {
     let mut report = ValidationReport::new();
     let height = df.height();
@@ -230,7 +231,9 @@ pub fn validate_silver_delivery(df: &DataFrame) -> anyhow::Result<()> {
         format!("{} rows (expected >= 50)", height),
     );
 
-    let days_late = df.column("sdl_days_late")?.f64()?;
+    // Cast to f64 to handle Mockaroo returning i64 for this column
+    let days_late_series = df.column("sdl_days_late")?.cast(&DataType::Float64)?;
+    let days_late = days_late_series.f64()?;
     let negative_delays: usize = days_late
         .into_iter()
         .filter(|v| v.map(|x| x < 0.0).unwrap_or(false))
@@ -241,7 +244,9 @@ pub fn validate_silver_delivery(df: &DataFrame) -> anyhow::Result<()> {
         format!("{} row(s) with sdl_days_late < 0 (impossible value)", negative_delays),
     );
 
-    let freight = df.column("sdl_freight_cost_usd")?.f64()?;
+    // Cast to f64 to handle potential integer types from CSV parsing
+    let freight_series = df.column("sdl_freight_cost_usd")?.cast(&DataType::Float64)?;
+    let freight = freight_series.f64()?;
     let non_positive_freight: usize = freight
         .into_iter()
         .filter(|v| v.map(|x| x <= 0.0).unwrap_or(true))
