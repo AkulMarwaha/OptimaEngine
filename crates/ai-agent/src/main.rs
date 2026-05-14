@@ -9,27 +9,48 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 const SEMANTIC_BASE: &str = "http://localhost:3000";
 
 const EXPLAIN_SYSTEM: &str = r#"
-You are an ERP analytics assistant for Optima Engine.
+You are a senior financial analyst AI for Optima Engine, an ERP intelligence platform.
+
 You will be given a user question and a JSON dataset from an ERP analytics API.
-Your job is to answer the question clearly and concisely in plain English.
-Focus on the most important insight. Highlight anything that looks like a problem.
-- The key margin fields are: avg_margin_pct, min_margin_pct, squeeze_count
-- If min_margin_pct is below 10%, flag it as a CRITICAL margin squeeze risk
-- If squeeze_count is above 0, flag it as at risk
-- If budget variance is positive (over budget), flag it with the dollar amount
-- If avg_days_late is above 5, flag the route as critical
-- Always reference min_margin_pct when discussing squeeze risk, not avg_margin_pct
-- IMPORTANT: Only flag margin squeeze if the data contains min_margin_pct field. Budget and delivery data does NOT contain margin fields — never invent margin squeeze flags for those datasets.
-Keep your answer under 100 words. Be specific with numbers. Do not repeat raw JSON.
+Your job is to answer in plain English like a CFO's most trusted advisor.
+
+DOLLAR IMPACT RULES — these are mandatory, never skip them:
+- For margin questions: calculate dollar impact as (total_net_value_usd * (target_margin - avg_margin_pct) / 100) where target margin is 15%. Call this "margin erosion".
+- For squeeze questions: calculate dollar impact as (total_net_value_usd * (6.0 - min_margin_pct) / 100) for any material where min_margin_pct < 6.0. Call this "margin at risk".
+- For budget questions: use total_variance directly as the dollar figure. Positive = over budget, negative = under budget.
+- For delivery questions: use total_freight_cost and avg_days_late together. Flag any route where avg_days_late > 5 as critical.
+- ALWAYS express dollar amounts as "$X,XXX" formatted numbers. Never leave out the dollar figure if the data supports it.
+
+ANSWER RULES:
+- Lead with the single most important finding and its dollar impact
+- Be specific with numbers — always reference the exact metric and the dollar amount
+- If something is critical, say CRITICAL explicitly
+- Suggest one concrete action the CFO can take
+- Keep answers under 120 words
+- Never repeat raw JSON
+- Never invent numbers that are not in the data
+
+CONTEXT RULES:
+- margin_pct fields are percentages (e.g. 6.0 = 6%)
+- total_net_value_usd and total_cost_usd are in USD
+- total_variance is in USD — positive means over budget
+- avg_days_late is in calendar days
+- squeeze_count is number of orders below the 6% margin threshold
+
+Example of a good answer:
+"CRITICAL: MAT-01 is your most urgent problem. With a minimum margin of 2.1% on $84,200 
+in revenue, you have $3,284 in margin at risk this period — selling below your cost 
+threshold on 47 orders. Immediate action: raise MAT-01 pricing by at least 4% or 
+renegotiate supplier cost before next quarter."
 "#;
 
 fn endpoint_url(endpoint: &str) -> Option<&'static str> {
     match endpoint {
-        "margin_material"      => Some("/metrics/margin/material"),
-        "margin_channel"       => Some("/metrics/margin/channel"),
-        "margin_sales_org"     => Some("/metrics/margin/sales-org"),
-        "margin_segment"       => Some("/metrics/margin/segment"),
-        "budget_variance"      => Some("/metrics/budget/variance"),
+        "margin_material" => Some("/metrics/margin/material"),
+        "margin_channel"  => Some("/metrics/margin/channel"),
+        "margin_sales_org" => Some("/metrics/margin/sales-org"),
+        "margin_segment"  => Some("/metrics/margin/segment"),
+        "budget_variance" => Some("/metrics/budget/variance"),
         "delivery_performance" => Some("/metrics/delivery/performance"),
         _ => None,
     }
@@ -49,20 +70,20 @@ async fn main() -> anyhow::Result<()> {
     let ollama_url = std::env::var("AI_AGENT_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:11434".to_string());
     let ollama_model = std::env::var("AI_AGENT_MODEL")
-        .unwrap_or_else(|_| "qwen3:1.7b".to_string());
+        .unwrap_or_else(|_| "qwen3:4b".to_string());
 
     let ollama = OllamaClient::new(&ollama_url, &ollama_model);
-    let http   = reqwest::Client::new();
+    let http = reqwest::Client::new();
 
     println!("\n╔═══════════════════════════════════════╗");
-    println!("║     Optima Engine — AI Agent          ║");
-    println!("│     Model: {:>26} │", ollama_model);
-    println!("║     API:   {:>26} ║", SEMANTIC_BASE);
-    println!("│     Backend: {:>24} │", "ollama");
+    println!("║      Optima Engine — AI Agent         ║");
+    println!("│  Model: {:>28} │", ollama_model);
+    println!("║  API:   {:>28} ║", SEMANTIC_BASE);
     println!("╚═══════════════════════════════════════╝\n");
     println!("Ask me anything about your ERP data. Ctrl+C to exit.\n");
 
     let stdin = io::stdin();
+
     loop {
         print!("You: ");
         io::stdout().flush()?;
@@ -75,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
         print!("Agent: thinking...");
         io::stdout().flush()?;
 
-        // Step 1 — route using Ollama (fast, one word response)
+        // Step 1 — route using Ollama
         let endpoint_key = match route_question(&ollama, question).await {
             Ok(k) => k,
             Err(e) => {
@@ -99,15 +120,13 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-        // Step 3 — explain using selected backend
+        // Step 3 — explain with dollar impact context
         let prompt = format!(
-            "User question: {}\n\nERP data (JSON):\n{}\n\nAnswer the question based on this data. /no_think",
+            "User question: {}\n\nERP data (JSON):\n{}\n\nAnswer the question. Include specific dollar amounts calculated from the data. Suggest one action. /no_think",
             question, data
         );
 
-       let result = ollama.ask(EXPLAIN_SYSTEM, &prompt).await;
-
-        match result {
+        match ollama.ask(EXPLAIN_SYSTEM, &prompt).await {
             Ok(answer) => println!("\rAgent: {}\n", answer),
             Err(e)     => println!("\rAgent: Model error — {}\n", e),
         }
