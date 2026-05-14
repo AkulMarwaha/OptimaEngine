@@ -1,6 +1,7 @@
 mod bronze_to_silver;
 mod silver_to_gold;
 mod compute;
+mod validate;
 
 use dotenvy::dotenv;
 use std::env;
@@ -23,22 +24,20 @@ fn main() -> anyhow::Result<()> {
 
     // Bronze → Silver
     bronze_to_silver::run(&bronze_path, &silver_path)?;
-
     println!("\n🥈 Silver layer complete.");
-    println!("   data/silver/sales_enriched.parquet");
-    println!("   data/silver/controlling_enriched.parquet");
-    println!("   data/silver/delivery_enriched.parquet");
+    println!(" data/silver/sales_enriched.parquet");
+    println!(" data/silver/controlling_enriched.parquet");
+    println!(" data/silver/delivery_enriched.parquet");
 
     // Silver → Gold
     silver_to_gold::run(&silver_path, &gold_path)?;
-
     println!("\n🥇 Gold layer complete.");
-    println!("   data/gold/margin_by_material.parquet");
-    println!("   data/gold/margin_by_channel.parquet");
-    println!("   data/gold/margin_by_sales_org.parquet");
-    println!("   data/gold/margin_by_segment.parquet");
-    println!("   data/gold/budget_variance.parquet");
-    println!("   data/gold/delivery_performance.parquet");
+    println!(" data/gold/margin_by_material.parquet");
+    println!(" data/gold/margin_by_channel.parquet");
+    println!(" data/gold/margin_by_sales_org.parquet");
+    println!(" data/gold/margin_by_segment.parquet");
+    println!(" data/gold/budget_variance.parquet");
+    println!(" data/gold/delivery_performance.parquet");
 
     Ok(())
 }

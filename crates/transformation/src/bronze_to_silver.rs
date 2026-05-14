@@ -4,6 +4,7 @@ use std::path::Path;
 use tracing::info;
 
 use crate::compute::{is_margin_squeeze, margin_pct, to_usd};
+use crate::validate::{validate_silver_sales, validate_silver_controlling, validate_silver_delivery};
 
 pub fn run(bronze_path: &str, silver_path: &str) -> anyhow::Result<()> {
     info!("Starting Bronze → Silver transformation");
@@ -128,7 +129,17 @@ pub fn run(bronze_path: &str, silver_path: &str) -> anyhow::Result<()> {
         enriched.width()
     );
 
+    // --- Step 6: Validate before writing ---
+    // If any check fails, the pipeline halts here and nothing is written to Silver.
+    validate_silver_sales(&enriched)
+        .context("Sales Silver validation failed — pipeline halted, no files written")?;
+    validate_silver_controlling(&controlling_df)
+        .context("Controlling Silver validation failed — pipeline halted, no files written")?;
+    validate_silver_delivery(&delivery_df)
+        .context("Delivery Silver validation failed — pipeline halted, no files written")?;
+
     // --- Write Silver Parquet files ---
+    // Only reached if all three validation blocks above pass.
     write_parquet(&mut enriched, &silver.join("sales_enriched.parquet"))?;
     info!("✅ sales_enriched.parquet written");
 
