@@ -21,6 +21,10 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "./data/silver".to_string());
     let gold_path = env::var("GOLD_DATA_PATH")
         .unwrap_or_else(|_| "./data/gold".to_string());
+    let vector_path = env::var("VECTOR_DATA_PATH")
+        .unwrap_or_else(|_| "./data/vector".to_string());
+    let ollama_url = env::var("AI_AGENT_BASE_URL")
+        .unwrap_or_else(|_| "http://localhost:11434".to_string());
 
     // Bronze → Silver
     bronze_to_silver::run(&bronze_path, &silver_path)?;
@@ -38,6 +42,10 @@ fn main() -> anyhow::Result<()> {
     println!(" data/gold/margin_by_segment.parquet");
     println!(" data/gold/budget_variance.parquet");
     println!(" data/gold/delivery_performance.parquet");
+
+    // Gold → Vector Store
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(vector_store::build_store(&gold_path, &vector_path, &ollama_url))?;
 
     Ok(())
 }
