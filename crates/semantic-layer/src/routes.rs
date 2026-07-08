@@ -1,4 +1,3 @@
-use polars::prelude::*;
 use axum::{extract::State, http::StatusCode, Json};
 use polars::prelude::*;
 use std::{io::Cursor, sync::Arc};

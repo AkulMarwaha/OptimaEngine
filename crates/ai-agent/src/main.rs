@@ -147,7 +147,8 @@ async fn main() -> anyhow::Result<()> {
         io::stdout().flush()?;
 
         let mut question = String::new();
-        stdin.lock().read_line(&mut question)?;
+        let n = stdin.lock().read_line(&mut question)?;
+        if n == 0 { break; } // EOF — exit cleanly when stdin is closed
         let question = question.trim();
         if question.is_empty() { continue; }
 
@@ -220,4 +221,6 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    Ok(())
 }
