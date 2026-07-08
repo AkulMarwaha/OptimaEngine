@@ -38,6 +38,7 @@ dependencies = [
  "anyhow",
  "core",
  "dotenvy",
+ "futures",
  "reqwest",
  "serde",
  "serde_json",

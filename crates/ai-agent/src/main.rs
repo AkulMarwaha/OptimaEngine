@@ -151,14 +151,14 @@ async fn main() -> anyhow::Result<()> {
         let question = question.trim();
         if question.is_empty() { continue; }
 
-        print!("Agent: thinking...");
+        print!("Agent: ");
         io::stdout().flush()?;
 
         // Step 1 — route
         let endpoint_key = match route_question(&ollama, question).await {
             Ok(k) => k,
             Err(e) => {
-                println!("\rAgent: Could not reach Ollama — is it running? ({})\n", e);
+                println!("Could not reach Ollama — is it running? ({})\n", e);
                 continue;
             }
         };
@@ -188,15 +188,15 @@ async fn main() -> anyhow::Result<()> {
                 question, all_data, semantic_context
             );
 
-            match ollama.ask(HEALTH_CHECK_SYSTEM, &prompt).await {
-                Ok(answer) => println!("\rAgent: {}\n", answer),
-                Err(e)     => println!("\rAgent: Model error — {}\n", e),
+            match ollama.ask_streaming(HEALTH_CHECK_SYSTEM, &prompt).await {
+                Ok(_)  => { println!(); println!(); }
+                Err(e) => println!("\nModel error — {}\n", e),
             }
 
         } else {
             // Single endpoint path — existing behaviour
             let Some(path) = endpoint_url(&endpoint_key) else {
-                println!("\rAgent: I can answer questions about margins, budgets, and delivery performance. Could you rephrase?\n");
+                println!("I can answer questions about margins, budgets, and delivery performance. Could you rephrase?\n");
                 continue;
             };
 
@@ -204,7 +204,7 @@ async fn main() -> anyhow::Result<()> {
             let data = match http.get(&url).send().await {
                 Ok(r)  => r.text().await.unwrap_or_default(),
                 Err(e) => {
-                    println!("\rAgent: Could not reach the semantic layer — is it running on port 3000? ({})\n", e);
+                    println!("Could not reach the semantic layer — is it running on port 3000? ({})\n", e);
                     continue;
                 }
             };
@@ -214,9 +214,9 @@ async fn main() -> anyhow::Result<()> {
                 question, data
             );
 
-            match ollama.ask(EXPLAIN_SYSTEM, &prompt).await {
-                Ok(answer) => println!("\rAgent: {}\n", answer),
-                Err(e)     => println!("\rAgent: Model error — {}\n", e),
+            match ollama.ask_streaming(EXPLAIN_SYSTEM, &prompt).await {
+                Ok(_)  => { println!(); println!(); }
+                Err(e) => println!("\nModel error — {}\n", e),
             }
         }
     }
