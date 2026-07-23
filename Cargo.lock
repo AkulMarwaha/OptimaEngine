@@ -39,6 +39,7 @@ dependencies = [
  "core",
  "dotenvy",
  "futures",
+ "polars",
  "reqwest",
  "serde",
  "serde_json",
@@ -5531,10 +5532,14 @@ dependencies = [
 name = "semantic-layer"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "axum",
  "core",
  "dotenvy",
+ "futures",
  "polars",
+ "reqwest",
+ "serde",
  "serde_json",
  "tokio",
  "tower-http 0.5.2",
