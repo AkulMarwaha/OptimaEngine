@@ -3,11 +3,18 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 
 #[derive(Serialize)]
-pub struct OllamaRequest {
-    pub model: String,
-    pub prompt: String,
-    pub stream: bool,
-    pub system: Option<String>,
+struct OllamaOptions {
+    temperature: f32,
+    num_predict: i32,
+}
+
+#[derive(Serialize)]
+struct OllamaRequest {
+    model: String,
+    prompt: String,
+    stream: bool,
+    system: Option<String>,
+    options: OllamaOptions,
 }
 
 #[derive(Deserialize)]
@@ -19,7 +26,6 @@ pub struct OllamaResponse {
 struct StreamChunk {
     response: String,
     #[serde(default)]
-    thinking: Option<String>,
     done: bool,
 }
 
@@ -38,13 +44,13 @@ impl OllamaClient {
         }
     }
 
-    /// Non-streaming call — used for routing (classification) only.
     pub async fn ask(&self, system: &str, prompt: &str) -> anyhow::Result<String> {
         let req = OllamaRequest {
             model: self.model.clone(),
             prompt: prompt.to_string(),
             stream: false,
             system: Some(system.to_string()),
+            options: OllamaOptions { temperature: 0.3, num_predict: 1024 },
         };
 
         let res = self
@@ -59,20 +65,13 @@ impl OllamaClient {
         Ok(res.response.trim().to_string())
     }
 
-    /// Streaming call — prints tokens to stdout as they arrive.
-    /// Shows a thinking indicator while Qwen3 reasons internally,
-    /// then clears it and streams the actual response word by word.
-    /// Falls back to ask() if the streaming request fails.
     pub async fn ask_streaming(&self, system: &str, prompt: &str) -> anyhow::Result<String> {
-        // Append /no_think to system prompt to force Qwen3 to skip
-        // its internal reasoning phase and stream the answer directly.
-        let system_with_no_think = format!("{}\n/no_think", system);
-
         let req = OllamaRequest {
             model: self.model.clone(),
             prompt: prompt.to_string(),
             stream: true,
-            system: Some(system_with_no_think),
+            system: Some(system.to_string()),
+            options: OllamaOptions { temperature: 0.3, num_predict: 1024 },
         };
 
         let response = self
@@ -82,7 +81,6 @@ impl OllamaClient {
             .send()
             .await;
 
-        // If request failed or returned bad status, fall back to non-streaming
         let response = match response {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
@@ -102,66 +100,81 @@ impl OllamaClient {
         };
 
         let mut stream = response.bytes_stream();
-        let mut buffer = String::new();
+        let mut line_buf = String::new();
+        let mut raw_buf = String::new();
         let mut full_response = String::new();
-        let mut thinking_shown = false;
-        let mut response_started = false;
+
+        // Simple think-tag stripping for CLI output
+        let mut in_think = false;
+        let mut think_shown = false;
 
         while let Some(chunk) = stream.next().await {
-            let bytes = match chunk {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::warn!("Streaming chunk error: {}", e);
-                    break;
-                }
-            };
+            let bytes = match chunk { Ok(b) => b, Err(_) => break };
+            let text = match std::str::from_utf8(&bytes) { Ok(s) => s, Err(_) => continue };
+            line_buf.push_str(text);
 
-            let text = match std::str::from_utf8(&bytes) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            buffer.push_str(text);
-
-            // Process every complete newline-delimited JSON object in the buffer
-            while let Some(pos) = buffer.find('\n') {
-                let line = buffer[..pos].trim().to_string();
-                buffer.drain(..=pos);
-
-                if line.is_empty() {
-                    continue;
-                }
+            while let Some(pos) = line_buf.find('\n') {
+                let line = line_buf[..pos].trim().to_string();
+                line_buf.drain(..=pos);
+                if line.is_empty() { continue; }
 
                 if let Ok(chunk) = serde_json::from_str::<StreamChunk>(&line) {
+                    if !chunk.response.is_empty() {
+                        raw_buf.push_str(&chunk.response);
+                    }
 
-                    // Qwen3 is still thinking — response field is empty
-                    if chunk.response.is_empty() && !chunk.done {
-                        if let Some(ref t) = chunk.thinking {
-                            if !t.is_empty() && !thinking_shown {
-                                print!("analyzing...");
+                    // Process raw_buf: handle <think> tags for terminal display
+                    'process: loop {
+                        if in_think {
+                            if let Some(idx) = raw_buf.find("</think>") {
+                                raw_buf.drain(..idx + 8);
+                                in_think = false;
+                                print!("\r                              \r");
                                 io::stdout().flush().ok();
-                                thinking_shown = true;
+                            } else {
+                                // Still inside think block — show indicator once
+                                if !think_shown {
+                                    print!("Thinking...");
+                                    io::stdout().flush().ok();
+                                    think_shown = true;
+                                }
+                                raw_buf.clear();
+                                break 'process;
+                            }
+                        } else {
+                            if let Some(idx) = raw_buf.find("<think>") {
+                                // Flush anything before <think> as real output
+                                let before = raw_buf[..idx].to_string();
+                                if !before.is_empty() {
+                                    print!("{}", before);
+                                    io::stdout().flush().ok();
+                                    full_response.push_str(&before);
+                                }
+                                raw_buf.drain(..idx + 7);
+                                in_think = true;
+                            } else {
+                                // No tags — flush safe prefix
+                                let safe = safe_prefix_len(&raw_buf, "<think>");
+                                let to_print = &raw_buf[..safe];
+                                if !to_print.is_empty() {
+                                    print!("{}", to_print);
+                                    io::stdout().flush().ok();
+                                    full_response.push_str(to_print);
+                                }
+                                raw_buf.drain(..safe);
+                                break 'process;
                             }
                         }
-                        continue;
-                    }
-
-                    // First real response token — clear the thinking indicator
-                    if !chunk.response.is_empty() && !response_started {
-                        if thinking_shown {
-                            print!("\r                              \r");
-                            io::stdout().flush().ok();
-                        }
-                        response_started = true;
-                    }
-
-                    // Stream the actual response token
-                    if !chunk.response.is_empty() {
-                        print!("{}", chunk.response);
-                        io::stdout().flush().ok();
-                        full_response.push_str(&chunk.response);
                     }
 
                     if chunk.done {
+                        // Flush remainder
+                        if !raw_buf.is_empty() && !in_think {
+                            print!("{}", raw_buf);
+                            io::stdout().flush().ok();
+                            full_response.push_str(&raw_buf);
+                            raw_buf.clear();
+                        }
                         return Ok(full_response);
                     }
                 }
@@ -170,4 +183,13 @@ impl OllamaClient {
 
         Ok(full_response)
     }
+}
+
+fn safe_prefix_len(s: &str, tag: &str) -> usize {
+    if let Some(idx) = s.find(tag) { return idx; }
+    let n = s.len();
+    for i in (1..tag.len().min(n + 1)).rev() {
+        if s.ends_with(&tag[..i]) { return n - i; }
+    }
+    n
 }

@@ -42,11 +42,7 @@ nav {
   letter-spacing: 0.02em;
 }
 .logo-bang { color: #0052FF; }
-.tagline {
-  font-size: 12px;
-  color: #6b7280;
-  letter-spacing: 0.03em;
-}
+.tagline { font-size: 12px; color: #6b7280; letter-spacing: 0.03em; }
 
 /* ── Processing banner ── */
 .banner {
@@ -68,7 +64,7 @@ nav {
   padding: 0 24px 16px;
 }
 
-/* ── Welcome state ── */
+/* ── Welcome ── */
 .welcome {
   display: flex;
   flex-direction: column;
@@ -79,15 +75,8 @@ nav {
   gap: 12px;
   padding: 40px 0;
 }
-.welcome h1 {
-  font-size: 26px;
-  font-weight: 600;
-  color: #111318;
-}
-.welcome p {
-  font-size: 15px;
-  color: #6b7280;
-}
+.welcome h1 { font-size: 26px; font-weight: 600; color: #111318; }
+.welcome p { font-size: 15px; color: #6b7280; }
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -107,46 +96,25 @@ nav {
   transition: border-color 0.15s, background 0.15s;
   font-family: inherit;
 }
-.chip:hover {
-  border-color: #0052FF;
-  background: #f0f5ff;
-  color: #0052FF;
-}
+.chip:hover { border-color: #0052FF; background: #f0f5ff; color: #0052FF; }
 
 /* ── Messages ── */
-.messages {
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  padding-top: 24px;
-}
-.msg-q {
-  font-size: 13px;
-  color: #6b7280;
-  margin-bottom: 6px;
-}
-.msg-a {
-  font-size: 15px;
-  line-height: 1.65;
-  color: #111318;
-}
-.msg-a br { display: block; content: ''; margin-top: 4px; }
+.messages { display: flex; flex-direction: column; gap: 28px; padding-top: 24px; }
+.msg-q { font-size: 13px; color: #6b7280; margin-bottom: 8px; }
+.msg-divider { border: none; border-top: 1px solid #e5e7eb; margin: 0; }
 
-/* ── Loading indicator ── */
-.loading {
+/* ── Rotating loading messages ── */
+.loading-state {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   color: #6b7280;
   font-size: 14px;
+  padding: 4px 0;
 }
-.dot-pulse {
-  display: flex;
-  gap: 4px;
-}
+.dot-pulse { display: flex; gap: 4px; }
 .dot-pulse span {
-  width: 6px;
-  height: 6px;
+  width: 6px; height: 6px;
   background: #6b7280;
   border-radius: 50%;
   animation: pulse 1.2s ease-in-out infinite;
@@ -157,6 +125,68 @@ nav {
   0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
   40% { opacity: 1; transform: scale(1); }
 }
+
+/* ── Thinking panel ── */
+.think-wrap { margin-bottom: 8px; }
+
+.think-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  color: #6b7280;
+  font-size: 12px;
+  padding: 4px 0;
+}
+.think-dot {
+  width: 7px; height: 7px;
+  background: #0052FF;
+  border-radius: 50%;
+}
+.think-dot.pulsing { animation: tpulse 1s ease-in-out infinite; }
+@keyframes tpulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+.think-chevron {
+  font-size: 10px;
+  transition: transform 0.2s;
+  display: none;
+}
+.think-chevron.visible { display: inline; }
+.think-chevron.open { transform: rotate(90deg); }
+
+.think-body {
+  background: #f9fafb;
+  border-left: 2px solid #0052FF;
+  border-radius: 0 8px 8px 0;
+  padding: 10px 14px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.55;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  transition: max-height 0.3s ease, opacity 0.3s ease;
+}
+.think-body.collapsed {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+
+/* ── Answer area ── */
+.msg-a {
+  font-size: 15px;
+  line-height: 1.65;
+  color: #111318;
+}
+.msg-a.hidden { display: none; }
 
 /* ── Severity badges ── */
 .badge {
@@ -172,16 +202,7 @@ nav {
 .badge-critical { background: #fee2e2; color: #dc2626; }
 .badge-watch    { background: #fffbeb; color: #d97706; }
 .badge-stable   { background: #f0fdf4; color: #16a34a; }
-
-/* ── Dollar amounts bold ── */
-.dollar { font-weight: 700; }
-
-/* ── Divider between messages ── */
-.msg-divider {
-  border: none;
-  border-top: 1px solid #e5e7eb;
-  margin: 0;
-}
+.dollar         { font-weight: 700; }
 
 /* ── Input bar ── */
 .input-bar {
@@ -270,51 +291,97 @@ const sendBtn = document.getElementById('sendBtn');
 const msgs    = document.getElementById('messages');
 const welcome = document.getElementById('welcome');
 const scroll  = document.getElementById('scrollArea');
-const banner  = document.getElementById('banner');
 
-input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); } });
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+});
 
-function fillQuestion(chip) {
-  input.value = chip.textContent;
-  input.focus();
-}
+function fillQuestion(chip) { input.value = chip.textContent; input.focus(); }
+function scrollToBottom() { scroll.scrollTop = scroll.scrollHeight; }
 
-function scrollToBottom() {
-  scroll.scrollTop = scroll.scrollHeight;
-}
-
+// ── Format answer text ──────────────────────────────────────────────────────
 function formatAnswer(text) {
-  // Escape HTML first
-  text = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  // Severity badge replacements (case-insensitive)
-  text = text.replace(/\bCRITICAL\b/gi,        '<span class="badge badge-critical">CRITICAL</span>');
+  text = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  text = text.replace(/\bCRITICAL\b/gi,       '<span class="badge badge-critical">CRITICAL</span>');
   text = text.replace(/\bWATCH(?:\s+LIST)?\b/gi,'<span class="badge badge-watch">WATCH</span>');
-  text = text.replace(/\bSTABLE\b/gi,           '<span class="badge badge-stable">STABLE</span>');
-  text = text.replace(/\bPERFORMING WELL\b/gi,  '<span class="badge badge-stable">PERFORMING WELL</span>');
-
-  // Bold dollar amounts
+  text = text.replace(/\bSTABLE\b/gi,          '<span class="badge badge-stable">STABLE</span>');
+  text = text.replace(/\bPERFORMING WELL\b/gi, '<span class="badge badge-stable">PERFORMING WELL</span>');
   text = text.replace(/(\$[\d,]+(?:\.\d+)?)/g, '<span class="dollar">$1</span>');
-
-  // Newlines to line breaks
   text = text.replace(/\n/g, '<br>');
-
   return text;
 }
 
+// ── Rotating loading messages ────────────────────────────────────────────────
+const ROTATE_MSGS = [
+  'Reading your ERP data…',
+  'Analyzing findings…',
+  'Preparing your answer…'
+];
+
+function makeLoadingDiv() {
+  const d = document.createElement('div');
+  d.className = 'loading-state';
+  d.innerHTML = `
+    <div class="dot-pulse"><span></span><span></span><span></span></div>
+    <span class="load-text">${ROTATE_MSGS[0]}</span>
+  `;
+  return d;
+}
+
+function startRotating(loadDiv) {
+  const span = loadDiv.querySelector('.load-text');
+  const t1 = setTimeout(() => { span.textContent = ROTATE_MSGS[1]; }, 3000);
+  const t2 = setTimeout(() => { span.textContent = ROTATE_MSGS[2]; }, 8000);
+  loadDiv._timers = [t1, t2];
+}
+
+function stopRotating(loadDiv) {
+  (loadDiv._timers || []).forEach(clearTimeout);
+}
+
+// ── Think panel helpers ──────────────────────────────────────────────────────
+function makeThinkWrap() {
+  const wrap = document.createElement('div');
+  wrap.className = 'think-wrap';
+  wrap.innerHTML = `
+    <div class="think-header" onclick="toggleThink(this)">
+      <span class="think-dot pulsing"></span>
+      <span class="think-label">Thinking…</span>
+      <span class="think-chevron">›</span>
+    </div>
+    <div class="think-body"></div>
+  `;
+  return wrap;
+}
+
+function toggleThink(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector('.think-chevron');
+  body.classList.toggle('collapsed');
+  chevron.classList.toggle('open');
+}
+
+function collapseThink(wrap, elapsedSecs) {
+  const dot    = wrap.querySelector('.think-dot');
+  const label  = wrap.querySelector('.think-label');
+  const chev   = wrap.querySelector('.think-chevron');
+  const body   = wrap.querySelector('.think-body');
+
+  dot.classList.remove('pulsing');
+  label.textContent = `Thought for ${elapsedSecs}s ›`;
+  chev.classList.add('visible');
+  body.classList.add('collapsed');
+}
+
+// ── Main send function ───────────────────────────────────────────────────────
 async function sendQuestion() {
   const question = input.value.trim();
   if (!question) return;
 
-  // Hide welcome, clear input, disable send
   welcome.style.display = 'none';
   input.value = '';
   sendBtn.disabled = true;
 
-  // Add divider if there are existing messages
   if (msgs.children.length > 0) {
     const hr = document.createElement('hr');
     hr.className = 'msg-divider';
@@ -327,23 +394,32 @@ async function sendQuestion() {
   qDiv.textContent = question;
   msgs.appendChild(qDiv);
 
-  // Loading indicator
-  const loadDiv = document.createElement('div');
-  loadDiv.className = 'msg-a loading';
-  loadDiv.innerHTML = `
-    <div class="dot-pulse"><span></span><span></span><span></span></div>
-    Analyzing your data&hellip;
-  `;
+  // Rotating loading indicator (shown until first token arrives)
+  const loadDiv = makeLoadingDiv();
   msgs.appendChild(loadDiv);
+  startRotating(loadDiv);
   scrollToBottom();
 
-  // Answer container (hidden until first token)
+  // Think panel (hidden until thinking_start arrives)
+  const thinkWrap = makeThinkWrap();
+  thinkWrap.style.display = 'none';
+  msgs.appendChild(thinkWrap);
+  const thinkBody = thinkWrap.querySelector('.think-body');
+
+  // Answer container
   const ansDiv = document.createElement('div');
-  ansDiv.className = 'msg-a';
-  ansDiv.style.display = 'none';
+  ansDiv.className = 'msg-a hidden';
   msgs.appendChild(ansDiv);
 
-  let rawText = '';
+  let rawAnswer = '';
+  let sawFirstToken = false;
+
+  function onFirstToken() {
+    if (sawFirstToken) return;
+    sawFirstToken = true;
+    stopRotating(loadDiv);
+    loadDiv.remove();
+  }
 
   try {
     const res = await fetch('/ask', {
@@ -352,9 +428,7 @@ async function sendQuestion() {
       body: JSON.stringify({ question })
     });
 
-    if (!res.ok) {
-      throw new Error(`Server error ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -366,43 +440,63 @@ async function sendQuestion() {
 
       buffer += decoder.decode(value, { stream: true });
 
-      // Process complete SSE lines
-      let newline;
-      while ((newline = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, newline).trim();
-        buffer = buffer.slice(newline + 1);
-
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
         if (!line.startsWith('data:')) continue;
+
         const raw = line.slice(5).trimStart();
-        if (raw === '[DONE]') break;
+        if (raw === '[DONE]') break; // legacy fallback
 
-        // Tokens are JSON-encoded to preserve leading spaces
-        let token;
-        try { token = JSON.parse(raw).t; } catch { token = raw; }
+        let ev;
+        try { ev = JSON.parse(raw); } catch { continue; }
 
-        // Show answer div, hide loader on first token
-        if (rawText === '') {
-          loadDiv.remove();
-          ansDiv.style.display = '';
+        switch (ev.type) {
+          case 'thinking_start':
+            onFirstToken();
+            thinkWrap.style.display = '';
+            scrollToBottom();
+            break;
+
+          case 'thinking':
+            if (ev.t) {
+              thinkBody.textContent += ev.t;
+              thinkBody.scrollTop = thinkBody.scrollHeight;
+              scrollToBottom();
+            }
+            break;
+
+          case 'thinking_done':
+            collapseThink(thinkWrap, ev.elapsed ?? 0);
+            scrollToBottom();
+            break;
+
+          case 'answer':
+          case 'direct':
+            onFirstToken();
+            if (ev.type === 'direct') thinkWrap.style.display = 'none';
+            if (ev.t) {
+              rawAnswer += ev.t;
+              ansDiv.classList.remove('hidden');
+              ansDiv.innerHTML = formatAnswer(rawAnswer);
+              scrollToBottom();
+            }
+            break;
+
+          case 'done':
+            // Finalise
+            if (rawAnswer) ansDiv.innerHTML = formatAnswer(rawAnswer);
+            break;
         }
-        rawText += token;
-        ansDiv.innerHTML = formatAnswer(rawText);
-        scrollToBottom();
       }
     }
 
-    // Final format pass after stream ends
-    if (rawText) {
-      loadDiv.remove();
-      ansDiv.style.display = '';
-      ansDiv.innerHTML = formatAnswer(rawText);
-    } else if (loadDiv.isConnected) {
-      loadDiv.innerHTML = '<span style="color:#dc2626">No response received.</span>';
-    }
-
   } catch (err) {
+    stopRotating(loadDiv);
     loadDiv.remove();
-    ansDiv.style.display = '';
+    thinkWrap.style.display = 'none';
+    ansDiv.classList.remove('hidden');
     ansDiv.innerHTML = `<span style="color:#dc2626">Error: ${err.message}</span>`;
   }
 
@@ -411,17 +505,13 @@ async function sendQuestion() {
   scrollToBottom();
 }
 
-// Processing banner helpers (called externally if a pipeline runner is integrated)
-function showBanner() {
-  banner.classList.remove('hidden');
-}
+function showBanner() { document.getElementById('banner').classList.remove('hidden'); }
 function hideBanner(msg) {
+  const b = document.getElementById('banner');
   if (msg) {
-    banner.textContent = msg;
-    setTimeout(() => { banner.style.opacity = '0'; setTimeout(() => banner.classList.add('hidden'), 500); }, 5000);
-  } else {
-    banner.classList.add('hidden');
-  }
+    b.textContent = msg;
+    setTimeout(() => { b.style.opacity='0'; setTimeout(()=>b.classList.add('hidden'),500); }, 5000);
+  } else { b.classList.add('hidden'); }
 }
 </script>
 </body>
