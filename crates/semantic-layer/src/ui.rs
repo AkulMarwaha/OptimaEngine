@@ -243,6 +243,57 @@ nav {
 .input-bar button:hover { background: #0041cc; }
 .input-bar button:disabled { background: #93b4ff; cursor: not-allowed; }
 
+/* ── Upload strip ── */
+.upload-strip {
+  flex-shrink: 0;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.upload-strip label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111318;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.upload-file-input {
+  font-size: 13px;
+  font-family: inherit;
+  color: #6b7280;
+  min-width: 0;
+  flex: 1;
+}
+.upload-btn {
+  flex-shrink: 0;
+  background: #0052FF;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.upload-btn:hover { background: #0041cc; }
+.upload-btn:disabled { background: #93b4ff; cursor: not-allowed; }
+.upload-status {
+  font-size: 13px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.upload-status.success { color: #16a34a; }
+.upload-status.error   { color: #dc2626; }
+
 /* ── Footer ── */
 footer {
   flex-shrink: 0;
@@ -262,6 +313,13 @@ footer {
 
 <div id="banner" class="banner hidden">
   Processing new data — your answers will reflect the latest export when complete.
+</div>
+
+<div class="upload-strip">
+  <label for="erpFile">Upload ERP export</label>
+  <input id="erpFile" class="upload-file-input" type="file" accept=".csv,.xlsx,.xls">
+  <button class="upload-btn" id="uploadBtn" onclick="uploadFile()">Upload</button>
+  <span id="uploadStatus" class="upload-status"></span>
 </div>
 
 <div class="scroll-area" id="scrollArea">
@@ -503,6 +561,48 @@ async function sendQuestion() {
   sendBtn.disabled = false;
   input.focus();
   scrollToBottom();
+}
+
+// ── Upload handler ───────────────────────────────────────────────────────────
+async function uploadFile() {
+  const fileInput = document.getElementById('erpFile');
+  const statusEl  = document.getElementById('uploadStatus');
+  const uploadBtn = document.getElementById('uploadBtn');
+
+  if (!fileInput.files.length) {
+    statusEl.className   = 'upload-status error';
+    statusEl.textContent = 'Select a file first.';
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+
+  uploadBtn.disabled   = true;
+  statusEl.className   = 'upload-status';
+  statusEl.textContent = 'Uploading…';
+
+  try {
+    const res  = await fetch('/ingest/upload', { method: 'POST', body: formData });
+    const json = await res.json();
+
+    if (res.ok) {
+      const size = json.bytes < 1024
+        ? `${json.bytes} B`
+        : `${(json.bytes / 1024).toFixed(1)} KB`;
+      statusEl.className   = 'upload-status success';
+      statusEl.textContent = `✓ ${json.filename} saved (${size})`;
+      fileInput.value = '';
+    } else {
+      statusEl.className   = 'upload-status error';
+      statusEl.textContent = `Error: ${JSON.stringify(json)}`;
+    }
+  } catch (err) {
+    statusEl.className   = 'upload-status error';
+    statusEl.textContent = `Error: ${err.message}`;
+  }
+
+  uploadBtn.disabled = false;
 }
 
 function showBanner() { document.getElementById('banner').classList.remove('hidden'); }

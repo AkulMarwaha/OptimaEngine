@@ -42,6 +42,7 @@ COMPANY DATA CONTEXT:
 #[derive(Clone)]
 pub struct AppState {
     pub gold_path: String,
+    pub bronze_path: String,
     pub system_prompt: String,
     pub ollama_url: String,
     pub ollama_model: String,
@@ -62,6 +63,8 @@ async fn main() {
 
     let gold_path = std::env::var("GOLD_DATA_PATH")
         .unwrap_or_else(|_| "./data/gold".to_string());
+    let bronze_path = std::env::var("BRONZE_DATA_PATH")
+        .unwrap_or_else(|_| "./data/bronze".to_string());
     let ollama_url = std::env::var("AI_AGENT_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:11434".to_string());
     let ollama_model = std::env::var("AI_AGENT_MODEL")
@@ -77,6 +80,7 @@ async fn main() {
     let model_name = ollama_model.clone();
     let state = Arc::new(AppState {
         gold_path,
+        bronze_path,
         system_prompt,
         ollama_url,
         ollama_model,
@@ -92,6 +96,7 @@ async fn main() {
         .route("/metrics/margin/segment",       get(routes::margin_by_segment))
         .route("/metrics/budget/variance",      get(routes::budget_variance))
         .route("/metrics/delivery/performance", get(routes::delivery_performance))
+        .route("/ingest/upload",                post(routes::upload_erp_file))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
