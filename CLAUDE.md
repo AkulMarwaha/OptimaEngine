@@ -97,7 +97,7 @@ on-premises.
 | Component | Status |
 |-----------|--------|
 | Generic internal field names | Done (transformation crate) |
-| Field matching logic | Exists at `crates/ingestion/src/field_matcher.rs` |
+| Field matching logic | Not built |
 | Upload endpoint | Not built |
 | Confirm/edit screen | Not built |
 | Pipeline wiring to saved config | Not built |
