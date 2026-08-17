@@ -52,7 +52,7 @@ pub fn validate_silver_sales(df: &DataFrame) -> anyhow::Result<()> {
     );
 
     // --- Check 2: No nulls in join keys ---
-    for col_name in &["ssh_order_id", "ssh_customer_id", "ssi_material_id"] {
+    for col_name in &["order_id", "customer_id", "material_id"] {
         let null_count = df.column(col_name)?.null_count();
         report.record(
             "join_key_no_nulls",
@@ -179,16 +179,16 @@ pub fn validate_silver_controlling(df: &DataFrame) -> anyhow::Result<()> {
         format!("{} rows (expected >= 50)", height),
     );
 
-    let variance = df.column("sco_budget_variance")?.f64()?;
+    let variance = df.column("budget_variance")?.f64()?;
     let null_count = variance.null_count();
     report.record(
         "budget_variance_no_nulls",
         null_count == 0,
-        format!("sco_budget_variance has {} null(s)", null_count),
+        format!("budget_variance has {} null(s)", null_count),
     );
 
-    let actual = df.column("sco_actual_cost")?.f64()?;
-    let budget = df.column("sco_budget_amount")?.f64()?;
+    let actual = df.column("actual_cost")?.f64()?;
+    let budget = df.column("budget_amount")?.f64()?;
     let inconsistent: usize = actual
         .into_iter()
         .zip(budget.into_iter())
@@ -202,7 +202,7 @@ pub fn validate_silver_controlling(df: &DataFrame) -> anyhow::Result<()> {
         "budget_variance_cross_validation",
         inconsistent == 0,
         format!(
-            "{} row(s) where sco_budget_variance != actual - budget",
+            "{} row(s) where budget_variance != actual - budget",
             inconsistent
         ),
     );
@@ -220,7 +220,7 @@ pub fn validate_silver_controlling(df: &DataFrame) -> anyhow::Result<()> {
 }
 
 /// Validate the Delivery DataFrame (pass-through to Silver).
-/// Uses cast() to handle Mockaroo sending sdl_days_late as i64 instead of f64.
+/// Uses cast() to handle Mockaroo sending days_late as i64 instead of f64.
 pub fn validate_silver_delivery(df: &DataFrame) -> anyhow::Result<()> {
     let mut report = ValidationReport::new();
     let height = df.height();
@@ -232,7 +232,7 @@ pub fn validate_silver_delivery(df: &DataFrame) -> anyhow::Result<()> {
     );
 
     // Cast to f64 to handle Mockaroo returning i64 for this column
-    let days_late_series = df.column("sdl_days_late")?.cast(&DataType::Float64)?;
+    let days_late_series = df.column("days_late")?.cast(&DataType::Float64)?;
     let days_late = days_late_series.f64()?;
     let negative_delays: usize = days_late
         .into_iter()
@@ -241,11 +241,11 @@ pub fn validate_silver_delivery(df: &DataFrame) -> anyhow::Result<()> {
     report.record(
         "days_late_non_negative",
         negative_delays == 0,
-        format!("{} row(s) with sdl_days_late < 0 (impossible value)", negative_delays),
+        format!("{} row(s) with days_late < 0 (impossible value)", negative_delays),
     );
 
     // Cast to f64 to handle potential integer types from CSV parsing
-    let freight_series = df.column("sdl_freight_cost_usd")?.cast(&DataType::Float64)?;
+    let freight_series = df.column("freight_cost_usd")?.cast(&DataType::Float64)?;
     let freight = freight_series.f64()?;
     let non_positive_freight: usize = freight
         .into_iter()
@@ -254,7 +254,7 @@ pub fn validate_silver_delivery(df: &DataFrame) -> anyhow::Result<()> {
     report.record(
         "freight_cost_positive",
         non_positive_freight == 0,
-        format!("{} row(s) with sdl_freight_cost_usd <= 0", non_positive_freight),
+        format!("{} row(s) with freight_cost_usd <= 0", non_positive_freight),
     );
 
     if !report.passed {

@@ -24,15 +24,15 @@ pub fn run(silver_path: &str, gold_path: &str) -> anyhow::Result<()> {
     let margin_by_material = sales
         .clone()
         .lazy()
-        .group_by([col("ssi_material_id")])
+        .group_by([col("material_id")])
         .agg([
             col("margin_pct").mean().alias("avg_margin_pct"),
             col("margin_pct").min().alias("min_margin_pct"),
             col("margin_pct").max().alias("max_margin_pct"),
-            col("ssi_net_value").sum().alias("total_net_value_usd"),
-            col("ssi_estimated_cost").sum().alias("total_cost_usd"),
+            col("net_value").sum().alias("total_net_value_usd"),
+            col("estimated_cost").sum().alias("total_cost_usd"),
             col("is_margin_squeeze").sum().alias("squeeze_count"),
-            col("ssh_order_id").count().alias("order_count"),
+            col("order_id").count().alias("order_count"),
         ])
         .sort(["avg_margin_pct"], SortMultipleOptions::default())
         .collect()
@@ -46,14 +46,14 @@ pub fn run(silver_path: &str, gold_path: &str) -> anyhow::Result<()> {
     let margin_by_channel = sales
         .clone()
         .lazy()
-        .group_by([col("ssh_distribution_channel")])
+        .group_by([col("distribution_channel")])
         .agg([
             col("margin_pct").mean().alias("avg_margin_pct"),
             col("margin_pct").min().alias("min_margin_pct"),
             col("margin_pct").max().alias("max_margin_pct"),
-            col("ssi_net_value").sum().alias("total_net_value_usd"),
+            col("net_value").sum().alias("total_net_value_usd"),
             col("is_margin_squeeze").sum().alias("squeeze_count"),
-            col("ssh_order_id").count().alias("order_count"),
+            col("order_id").count().alias("order_count"),
         ])
         .sort(["avg_margin_pct"], SortMultipleOptions::default())
         .collect()
@@ -67,14 +67,14 @@ pub fn run(silver_path: &str, gold_path: &str) -> anyhow::Result<()> {
     let margin_by_sales_org = sales
         .clone()
         .lazy()
-        .group_by([col("ssh_sales_org")])
+        .group_by([col("sales_org")])
         .agg([
             col("margin_pct").mean().alias("avg_margin_pct"),
             col("margin_pct").min().alias("min_margin_pct"),
             col("margin_pct").max().alias("max_margin_pct"),
-            col("ssi_net_value").sum().alias("total_net_value_usd"),
+            col("net_value").sum().alias("total_net_value_usd"),
             col("is_margin_squeeze").sum().alias("squeeze_count"),
-            col("ssh_order_id").count().alias("order_count"),
+            col("order_id").count().alias("order_count"),
         ])
         .sort(["avg_margin_pct"], SortMultipleOptions::default())
         .collect()
@@ -88,12 +88,12 @@ pub fn run(silver_path: &str, gold_path: &str) -> anyhow::Result<()> {
     let margin_by_segment = sales
         .clone()
         .lazy()
-        .group_by([col("scm_industry"), col("scm_region_group")])
+        .group_by([col("industry"), col("region_group")])
         .agg([
             col("margin_pct").mean().alias("avg_margin_pct"),
-            col("ssi_net_value").sum().alias("total_net_value_usd"),
+            col("net_value").sum().alias("total_net_value_usd"),
             col("is_margin_squeeze").sum().alias("squeeze_count"),
-            col("ssh_order_id").count().alias("order_count"),
+            col("order_id").count().alias("order_count"),
         ])
         .sort(["avg_margin_pct"], SortMultipleOptions::default())
         .collect()
@@ -107,13 +107,13 @@ pub fn run(silver_path: &str, gold_path: &str) -> anyhow::Result<()> {
     let budget_variance = controlling
         .clone()
         .lazy()
-        .group_by([col("sco_department"), col("sco_fiscal_year")])
+        .group_by([col("department"), col("fiscal_year")])
         .agg([
-            col("sco_actual_cost").sum().alias("total_actual_cost"),
-            col("sco_budget_amount").sum().alias("total_budget"),
-            col("sco_budget_variance").sum().alias("total_variance"),
-            col("sco_budget_variance").mean().alias("avg_variance"),
-            col("sco_order_id").count().alias("record_count"),
+            col("actual_cost").sum().alias("total_actual_cost"),
+            col("budget_amount").sum().alias("total_budget"),
+            col("budget_variance").sum().alias("total_variance"),
+            col("budget_variance").mean().alias("avg_variance"),
+            col("order_id").count().alias("record_count"),
         ])
         .sort(["total_variance"], SortMultipleOptions::default())
         .collect()
@@ -127,12 +127,12 @@ pub fn run(silver_path: &str, gold_path: &str) -> anyhow::Result<()> {
     let delivery_performance = delivery
         .clone()
         .lazy()
-        .group_by([col("sdl_route"), col("sdl_transport_type")])
+        .group_by([col("route"), col("transport_type")])
         .agg([
-            col("sdl_days_late").mean().alias("avg_days_late"),
-            col("sdl_freight_cost_usd").mean().alias("avg_freight_cost"),
-            col("sdl_freight_cost_usd").sum().alias("total_freight_cost"),
-            col("sdl_delivery_id").count().alias("delivery_count"),
+            col("days_late").mean().alias("avg_days_late"),
+            col("freight_cost_usd").mean().alias("avg_freight_cost"),
+            col("freight_cost_usd").sum().alias("total_freight_cost"),
+            col("delivery_id").count().alias("delivery_count"),
         ])
         .sort(["avg_days_late"], SortMultipleOptions::default())
         .collect()

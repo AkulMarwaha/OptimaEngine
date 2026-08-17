@@ -26,7 +26,6 @@ DATA INTERPRETATION:
 - In BUDGET VARIANCE data: positive total_variance = OVER budget (cost overrun, BAD). Negative = under budget (savings, good).
 - When asked what to worry about or what is over budget: focus ONLY on departments with POSITIVE total_variance.
 - total_budget is the planned spend. total_actual_cost is what was spent. total_variance = actual minus budget.
-- Field name prefixes (sco_, ssi_, ssh_, sdl_, scm_) are SAP internal names — omit them in your answers.
 
 REASONING INSTRUCTIONS:
 Before answering, scan all sections of the data context. Identify which section is most relevant to the question. Check every numeric value in that section. Find the single most important finding. Only then write your answer.

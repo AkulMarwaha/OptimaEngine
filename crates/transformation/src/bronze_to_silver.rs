@@ -129,7 +129,48 @@ pub fn run(bronze_path: &str, silver_path: &str) -> anyhow::Result<()> {
         enriched.width()
     );
 
-    // --- Step 6: Validate before writing ---
+    // --- Step 6: Rename to generic column names ---
+    enriched = enriched
+        .lazy()
+        .rename(
+            ["ssh_order_id", "ssh_customer_id", "ssh_currency",
+             "ssh_distribution_channel", "ssh_sales_org",
+             "ssi_material_id", "ssi_net_value", "ssi_estimated_cost",
+             "scm_industry", "scm_region_group"],
+            ["order_id", "customer_id", "currency",
+             "distribution_channel", "sales_org",
+             "material_id", "net_value", "estimated_cost",
+             "industry", "region_group"],
+            true,
+        )
+        .collect()
+        .context("Failed to rename sales columns to generic names")?;
+
+    let controlling_df = controlling_df
+        .lazy()
+        .rename(
+            ["sco_department", "sco_fiscal_year", "sco_actual_cost",
+             "sco_budget_amount", "sco_budget_variance", "sco_order_id"],
+            ["department", "fiscal_year", "actual_cost",
+             "budget_amount", "budget_variance", "order_id"],
+            true,
+        )
+        .collect()
+        .context("Failed to rename controlling columns to generic names")?;
+
+    let delivery_df = delivery_df
+        .lazy()
+        .rename(
+            ["sdl_route", "sdl_transport_type", "sdl_days_late",
+             "sdl_freight_cost_usd", "sdl_delivery_id"],
+            ["route", "transport_type", "days_late",
+             "freight_cost_usd", "delivery_id"],
+            true,
+        )
+        .collect()
+        .context("Failed to rename delivery columns to generic names")?;
+
+    // --- Step 7: Validate before writing ---
     // If any check fails, the pipeline halts here and nothing is written to Silver.
     validate_silver_sales(&enriched)
         .context("Sales Silver validation failed — pipeline halted, no files written")?;

@@ -2,7 +2,7 @@
 
 ## What this is
 Optima Engine is an on-premises AI intelligence layer for mid-market 
-automotive suppliers running SAP ECC. It ingests ERP data, runs a 
+automotive suppliers running any ERP system. It ingests ERP data, runs a 
 Bronze→Silver→Gold medallion pipeline, and answers natural language 
 questions about margin, delivery, and budget performance. Everything 
 runs locally — no data leaves the building. Built in Rust.
@@ -28,7 +28,7 @@ runs locally — no data leaves the building. Built in Rust.
 - Polars 0.46 for data transformation
 - Axum 0.7 for REST API
 - Tokio 1.x async runtime
-- Ollama local inference (model: qwen3, port 11434)
+- Ollama local inference (model: qwen2.5:1.5b, port 11434)
 - Mockaroo for synthetic SAP data
 
 ## Critical Rust rules — never break these
@@ -55,7 +55,7 @@ cargo check -p core && cargo check -p ingestion && cargo check -p transformation
 
 ## Ollama
 - Running locally at http://localhost:11434
-- Model: qwen3 (already pulled)
+- Model: qwen2.5:1.5b (already pulled)
 - Never use any cloud APIs — everything must be local
 
 ## Current state

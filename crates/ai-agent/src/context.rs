@@ -37,8 +37,8 @@ fn append_budget_section(ctx: &mut String, gold_path: &str) -> Result<()> {
     let mut rows: Vec<BudgetRow> = Vec::new();
     for line in raw.lines().filter(|l| !l.trim().is_empty()) {
         if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(line) {
-            let dept     = map.get("sco_department").and_then(|v| v.as_str()).unwrap_or("?").to_string();
-            let year     = map.get("sco_fiscal_year").and_then(|v| v.as_i64()).unwrap_or(0);
+            let dept     = map.get("department").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+            let year     = map.get("fiscal_year").and_then(|v| v.as_i64()).unwrap_or(0);
             let budget   = map.get("total_budget").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let actual   = map.get("total_actual_cost").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let variance = map.get("total_variance").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -107,11 +107,6 @@ fn append_section(ctx: &mut String, gold_path: &str, filename: &str, title: &str
 }
 
 fn strip_prefix(col: &str) -> &str {
-    for prefix in &["ssi_", "ssh_", "scm_", "sco_", "sdl_"] {
-        if let Some(stripped) = col.strip_prefix(prefix) {
-            return stripped;
-        }
-    }
     col
 }
 
