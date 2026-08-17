@@ -1,6 +1,7 @@
 mod mockaroo_client;
 mod pipeline;
 mod connectors;
+pub mod field_matcher;
 
 use optima_core::config::AppConfig;
 use mockaroo_client::MockarooClient;
