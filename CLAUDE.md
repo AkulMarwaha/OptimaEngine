@@ -65,3 +65,39 @@ cargo check -p core && cargo check -p ingestion && cargo check -p transformation
 - Semantic Layer API: built, needs verification
 - AI Agent: built, needs verification
 - Vector store: not started
+
+## Configurable Pipeline Plan
+
+### Goal
+Self-serve onboarding: a company connects their own ERP export without
+ever sending data or schema information externally. Everything stays
+on-premises.
+
+### Onboarding flow
+1. **Upload** — company uploads a CSV or Excel file through the web UI
+2. **Propose mapping** — system proposes a column mapping via a two-tier
+   matcher:
+   - Tier 1: known ERP field codes (e.g. SAP: VBELN, KUNNR, MATNR, ...)
+     matched by exact code lookup
+   - Tier 2: heuristic matching on header wording, used as fallback for
+     any ERP not in the known-codes list
+3. **Confirm/edit** — proposed mapping is shown on a review screen;
+   a human approves or corrects it before anything runs
+4. **Save & run** — confirmed mapping is saved as a config file; every
+   future export from that company runs against the saved config
+   automatically — no re-mapping needed
+
+### Design constraints
+- Must work with any ERP, not just SAP
+- SAP is the first supported pattern set, not a ceiling
+- The canonical generic field names used internally are already in place
+  (see transformation crate — order_id, material_id, department, etc.)
+
+### Implementation status
+| Component | Status |
+|-----------|--------|
+| Generic internal field names | Done (transformation crate) |
+| Field matching logic | Exists at `crates/ingestion/src/field_matcher.rs` |
+| Upload endpoint | Not built |
+| Confirm/edit screen | Not built |
+| Pipeline wiring to saved config | Not built |
