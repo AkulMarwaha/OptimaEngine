@@ -1,4 +1,5 @@
 use axum::{extract::{Multipart, State}, http::StatusCode, Json};
+use calamine::{open_workbook_from_rs, Reader, Xls, Xlsx};
 use polars::prelude::*;
 use std::{io::Cursor, sync::Arc};
 
@@ -85,6 +86,64 @@ pub async fn delivery_performance(State(state): State<Arc<AppState>>) -> ApiResp
     Ok(Json(json))
 }
 
+/// Extract the header row from a CSV or Excel file supplied as raw bytes.
+fn extract_headers(filename: &str, data: &[u8]) -> Result<Vec<String>, String> {
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "xlsx" => extract_headers_xlsx(data),
+        "xls"  => extract_headers_xls(data),
+        _      => Ok(extract_headers_csv(data)),
+    }
+}
+
+fn extract_headers_csv(data: &[u8]) -> Vec<String> {
+    // Strip UTF-8 BOM (present in many Excel-exported CSVs).
+    let data = data.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(data);
+    let text = std::str::from_utf8(data).unwrap_or("");
+    text.lines()
+        .next()
+        .unwrap_or("")
+        .split(',')
+        .map(|h| h.trim().trim_matches('"').to_string())
+        .filter(|h| !h.is_empty())
+        .collect()
+}
+
+fn extract_headers_xlsx(data: &[u8]) -> Result<Vec<String>, String> {
+    let cursor = Cursor::new(data.to_vec());
+    let mut wb: Xlsx<_> = open_workbook_from_rs(cursor).map_err(|e: calamine::XlsxError| e.to_string())?;
+    let sheets = wb.sheet_names();
+    let sheet = sheets.first().cloned().ok_or("No sheets found in workbook")?;
+    let range = wb.worksheet_range(&sheet).map_err(|e| e.to_string())?;
+    Ok(range
+        .rows()
+        .next()
+        .unwrap_or_default()
+        .iter()
+        .map(|c| c.to_string())
+        .collect())
+}
+
+fn extract_headers_xls(data: &[u8]) -> Result<Vec<String>, String> {
+    let cursor = Cursor::new(data.to_vec());
+    let mut wb: Xls<_> = open_workbook_from_rs(cursor).map_err(|e: calamine::XlsError| e.to_string())?;
+    let sheets = wb.sheet_names();
+    let sheet = sheets.first().cloned().ok_or("No sheets found in workbook")?;
+    let range = wb.worksheet_range(&sheet).map_err(|e| e.to_string())?;
+    Ok(range
+        .rows()
+        .next()
+        .unwrap_or_default()
+        .iter()
+        .map(|c| c.to_string())
+        .collect())
+}
+
 pub async fn upload_erp_file(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
@@ -113,19 +172,48 @@ pub async fn upload_erp_file(
             .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
         let byte_count = data.len();
 
+        // Save raw bytes to Bronze.
         std::fs::create_dir_all(&state.bronze_path)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
         let dest = std::path::Path::new(&state.bronze_path).join(&filename);
         std::fs::write(&dest, &data)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        tracing::info!("Uploaded {} ({} bytes) → {:?}", filename, byte_count, dest);
+        // Extract headers and propose a field mapping.
+        let headers = extract_headers(&filename, &data)
+            .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
+        let header_refs: Vec<&str> = headers.iter().map(String::as_str).collect();
+        let matches = ingestion::field_matcher::match_headers(&header_refs);
+
+        let mapping: Vec<serde_json::Value> = headers
+            .iter()
+            .zip(matches.iter())
+            .map(|(header, m)| {
+                let tier = match m.tier {
+                    ingestion::field_matcher::MatchTier::Known     => "Known",
+                    ingestion::field_matcher::MatchTier::Heuristic => "Heuristic",
+                    ingestion::field_matcher::MatchTier::NoMatch   => "NoMatch",
+                };
+                serde_json::json!({
+                    "header":    header,
+                    "canonical": m.canonical,
+                    "tier":      tier,
+                })
+            })
+            .collect();
+
+        tracing::info!(
+            "Uploaded {} ({} bytes) → {:?} — {} headers, {} matched",
+            filename, byte_count, dest,
+            headers.len(),
+            matches.iter().filter(|m| m.canonical.is_some()).count(),
+        );
 
         return Ok(Json(serde_json::json!({
-            "status": "ok",
+            "status":   "ok",
             "filename": filename,
-            "bytes": byte_count,
+            "bytes":    byte_count,
+            "mapping":  mapping,
         })));
     }
 
@@ -136,38 +224,42 @@ pub async fn upload_erp_file(
 mod tests {
     use super::*;
     use axum::{
-        body::Body,
+        body::{to_bytes, Body},
         http::{Request, StatusCode},
         routing::post,
         Router,
     };
     use tower::ServiceExt;
 
-    #[tokio::test]
-    async fn upload_csv_lands_in_bronze() {
-        let bronze_dir = std::env::temp_dir().join("optima_upload_test");
-        std::fs::create_dir_all(&bronze_dir).unwrap();
-        let bronze_path = bronze_dir.to_str().unwrap().to_string();
+    fn make_multipart(boundary: &str, filename: &str, csv: &str) -> String {
+        format!(
+            "--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{f}\"\r\nContent-Type: text/csv\r\n\r\n{c}\r\n--{b}--\r\n",
+            b = boundary, f = filename, c = csv,
+        )
+    }
 
-        let state = std::sync::Arc::new(crate::AppState {
+    fn test_state(bronze_path: String) -> std::sync::Arc<crate::AppState> {
+        std::sync::Arc::new(crate::AppState {
             gold_path: "/tmp".to_string(),
-            bronze_path: bronze_path.clone(),
+            bronze_path,
             system_prompt: String::new(),
             ollama_url: "http://localhost:11434".to_string(),
             ollama_model: "test".to_string(),
-        });
+        })
+    }
+
+    #[tokio::test]
+    async fn upload_csv_lands_in_bronze_and_returns_mapping() {
+        let bronze_dir = std::env::temp_dir().join("optima_upload_test");
+        std::fs::create_dir_all(&bronze_dir).unwrap();
 
         let app = Router::new()
             .route("/ingest/upload", post(upload_erp_file))
-            .with_state(state);
+            .with_state(test_state(bronze_dir.to_str().unwrap().to_string()));
 
         let boundary = "testboundary9000";
-        let csv = "order_id,customer_id,net_value\nO-001,C-001,9500.00\n";
-        let body = format!(
-            "--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test_upload.csv\"\r\nContent-Type: text/csv\r\n\r\n{c}\r\n--{b}--\r\n",
-            b = boundary,
-            c = csv,
-        );
+        let csv = "VBELN,KUNNR,MATNR,UNKNOWN_COL\n001,C001,M001,foo\n";
+        let body = make_multipart(boundary, "sap_export.csv", csv);
 
         let request = Request::builder()
             .method("POST")
@@ -177,12 +269,35 @@ mod tests {
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        let status = response.status();
+        let body_bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(status, StatusCode::OK);
 
-        let landed = bronze_dir.join("test_upload.csv");
-        assert!(landed.exists(), "uploaded file should be present in bronze dir");
-        let saved = std::fs::read_to_string(&landed).unwrap();
-        assert!(saved.contains("order_id"), "CSV content should be preserved intact");
+        // File landed in Bronze with content intact.
+        let landed = bronze_dir.join("sap_export.csv");
+        assert!(landed.exists(), "file should be in bronze dir");
+        assert!(std::fs::read_to_string(&landed).unwrap().contains("VBELN"));
+
+        // Response contains the field mapping.
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let mapping = json["mapping"].as_array().expect("mapping should be an array");
+        assert_eq!(mapping.len(), 4);
+
+        assert_eq!(mapping[0]["header"],    "VBELN");
+        assert_eq!(mapping[0]["canonical"], "order_id");
+        assert_eq!(mapping[0]["tier"],      "Known");
+
+        assert_eq!(mapping[1]["header"],    "KUNNR");
+        assert_eq!(mapping[1]["canonical"], "customer_id");
+        assert_eq!(mapping[1]["tier"],      "Known");
+
+        assert_eq!(mapping[2]["header"],    "MATNR");
+        assert_eq!(mapping[2]["canonical"], "material_id");
+        assert_eq!(mapping[2]["tier"],      "Known");
+
+        assert_eq!(mapping[3]["header"],    "UNKNOWN_COL");
+        assert_eq!(mapping[3]["canonical"], serde_json::Value::Null);
+        assert_eq!(mapping[3]["tier"],      "NoMatch");
 
         std::fs::remove_dir_all(&bronze_dir).ok();
     }

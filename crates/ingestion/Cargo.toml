@@ -3,6 +3,14 @@ name = "ingestion"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "ingestion"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ingestion"
+path = "src/main.rs"
+
 [dependencies]
 optima-core = { path = "../core", package = "core" }
 tokio = { version = "1", features = ["full"] }
