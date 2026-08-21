@@ -294,6 +294,102 @@ nav {
 .upload-status.success { color: #16a34a; }
 .upload-status.error   { color: #dc2626; }
 
+/* ── Mapping review panel ── */
+.mapping-panel {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  border-bottom: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+.mapping-panel.hidden { display: none; }
+.mapping-header {
+  flex-shrink: 0;
+  padding: 7px 24px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+.mapping-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.mapping-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mapping-table th {
+  position: sticky;
+  top: 0;
+  background: #f9fafb;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.mapping-table td {
+  padding: 5px 24px;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: middle;
+}
+.mapping-table tr:last-child td { border-bottom: none; }
+.mapping-table tr.nomatch-row td { background: #fff5f5; }
+.col-source { font-family: 'Courier New', monospace; font-size: 12px; color: #111318; width: 28%; white-space: nowrap; }
+.col-select { width: 52%; }
+.col-tier   { width: 20%; }
+.canonical-select {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #111318;
+  background: #ffffff;
+  cursor: pointer;
+  outline: none;
+}
+.canonical-select:focus { border-color: #0052FF; }
+.tier-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.tier-known     { background: #f0fdf4; color: #16a34a; }
+.tier-heuristic { background: #fffbeb; color: #92400e; }
+.tier-nomatch   { background: #fee2e2; color: #dc2626; }
+.mapping-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 24px;
+  background: #f9fafb;
+  border-top: 1px solid #e5e7eb;
+}
+.confirm-btn {
+  background: #0052FF;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.confirm-btn:hover    { background: #0041cc; }
+.confirm-btn:disabled { background: #93b4ff; cursor: not-allowed; }
+.confirm-status { font-size: 13px; }
+.confirm-status.success { color: #16a34a; }
+.confirm-status.error   { color: #dc2626; }
+
 /* ── Footer ── */
 footer {
   flex-shrink: 0;
@@ -320,6 +416,24 @@ footer {
   <input id="erpFile" class="upload-file-input" type="file" accept=".csv,.xlsx,.xls">
   <button class="upload-btn" id="uploadBtn" onclick="uploadFile()">Upload</button>
   <span id="uploadStatus" class="upload-status"></span>
+</div>
+
+<div id="mappingPanel" class="mapping-panel hidden">
+  <div class="mapping-header">Review field mapping — correct any mismatches before confirming</div>
+  <div class="mapping-scroll">
+    <table class="mapping-table">
+      <thead><tr>
+        <th class="col-source">Source column</th>
+        <th class="col-select">Maps to</th>
+        <th class="col-tier"></th>
+      </tr></thead>
+      <tbody id="mappingBody"></tbody>
+    </table>
+  </div>
+  <div class="mapping-footer">
+    <button class="confirm-btn" id="confirmBtn" onclick="confirmMapping()">Confirm mapping</button>
+    <span id="confirmStatus" class="confirm-status"></span>
+  </div>
 </div>
 
 <div class="scroll-area" id="scrollArea">
@@ -593,6 +707,7 @@ async function uploadFile() {
       statusEl.className   = 'upload-status success';
       statusEl.textContent = `✓ ${json.filename} saved (${size})`;
       fileInput.value = '';
+      if (json.mapping && json.mapping.length > 0) renderMapping(json.mapping);
     } else {
       statusEl.className   = 'upload-status error';
       statusEl.textContent = `Error: ${JSON.stringify(json)}`;
@@ -603,6 +718,99 @@ async function uploadFile() {
   }
 
   uploadBtn.disabled = false;
+}
+
+// ── Mapping review table ─────────────────────────────────────────────────────
+const CANONICAL_FIELDS = [
+  'order_id', 'customer_id', 'material_id', 'net_value', 'estimated_cost',
+  'currency', 'distribution_channel', 'sales_org', 'industry', 'region_group',
+  'department', 'fiscal_year', 'actual_cost', 'budget_amount', 'budget_variance',
+  'route', 'transport_type', 'days_late', 'freight_cost_usd', 'delivery_id',
+];
+
+function renderMapping(mapping) {
+  const tbody = document.getElementById('mappingBody');
+  tbody.innerHTML = '';
+
+  mapping.forEach(row => {
+    const tr = document.createElement('tr');
+    if (row.tier === 'NoMatch') tr.classList.add('nomatch-row');
+
+    const tdSrc = document.createElement('td');
+    tdSrc.className = 'col-source';
+    tdSrc.textContent = row.header;
+    tr.appendChild(tdSrc);
+
+    const tdSel = document.createElement('td');
+    tdSel.className = 'col-select';
+    const sel = document.createElement('select');
+    sel.className = 'canonical-select';
+    sel.dataset.header = row.header;
+    const notUsed = document.createElement('option');
+    notUsed.value = '';
+    notUsed.textContent = '— Not used —';
+    if (!row.canonical) notUsed.selected = true;
+    sel.appendChild(notUsed);
+    CANONICAL_FIELDS.forEach(field => {
+      const opt = document.createElement('option');
+      opt.value = field;
+      opt.textContent = field;
+      if (field === row.canonical) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    tdSel.appendChild(sel);
+    tr.appendChild(tdSel);
+
+    const tdTier = document.createElement('td');
+    tdTier.className = 'col-tier';
+    const badge = document.createElement('span');
+    badge.className = 'tier-badge tier-' + row.tier.toLowerCase();
+    badge.textContent = row.tier;
+    tdTier.appendChild(badge);
+    tr.appendChild(tdTier);
+
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('mappingPanel').classList.remove('hidden');
+  document.getElementById('confirmStatus').textContent = '';
+  document.getElementById('confirmStatus').className   = 'confirm-status';
+}
+
+async function confirmMapping() {
+  const confirmBtn    = document.getElementById('confirmBtn');
+  const confirmStatus = document.getElementById('confirmStatus');
+  const selects       = document.querySelectorAll('.canonical-select');
+
+  const body = Array.from(selects).map(sel => ({
+    header:    sel.dataset.header,
+    canonical: sel.value || null,
+  }));
+
+  confirmBtn.disabled       = true;
+  confirmStatus.className   = 'confirm-status';
+  confirmStatus.textContent = 'Saving…';
+
+  try {
+    const res  = await fetch('/ingest/confirm-mapping', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      confirmStatus.className   = 'confirm-status success';
+      confirmStatus.textContent = `✓ Mapping saved (${json.entries} fields)`;
+    } else {
+      confirmStatus.className   = 'confirm-status error';
+      confirmStatus.textContent = `Error: ${JSON.stringify(json)}`;
+    }
+  } catch (err) {
+    confirmStatus.className   = 'confirm-status error';
+    confirmStatus.textContent = `Error: ${err.message}`;
+  }
+
+  confirmBtn.disabled = false;
 }
 
 function showBanner() { document.getElementById('banner').classList.remove('hidden'); }

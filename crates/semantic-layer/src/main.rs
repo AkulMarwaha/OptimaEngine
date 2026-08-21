@@ -43,6 +43,7 @@ COMPANY DATA CONTEXT:
 pub struct AppState {
     pub gold_path: String,
     pub bronze_path: String,
+    pub config_path: String,
     pub system_prompt: String,
     pub ollama_url: String,
     pub ollama_model: String,
@@ -65,6 +66,8 @@ async fn main() {
         .unwrap_or_else(|_| "./data/gold".to_string());
     let bronze_path = std::env::var("BRONZE_DATA_PATH")
         .unwrap_or_else(|_| "./data/bronze".to_string());
+    let config_path = std::env::var("DATA_CONFIG_PATH")
+        .unwrap_or_else(|_| "./data/config".to_string());
     let ollama_url = std::env::var("AI_AGENT_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:11434".to_string());
     let ollama_model = std::env::var("AI_AGENT_MODEL")
@@ -81,6 +84,7 @@ async fn main() {
     let state = Arc::new(AppState {
         gold_path,
         bronze_path,
+        config_path,
         system_prompt,
         ollama_url,
         ollama_model,
@@ -97,6 +101,7 @@ async fn main() {
         .route("/metrics/budget/variance",      get(routes::budget_variance))
         .route("/metrics/delivery/performance", get(routes::delivery_performance))
         .route("/ingest/upload",                post(routes::upload_erp_file))
+        .route("/ingest/confirm-mapping",       post(routes::confirm_mapping))
         .layer(CorsLayer::permissive())
         .with_state(state);
 

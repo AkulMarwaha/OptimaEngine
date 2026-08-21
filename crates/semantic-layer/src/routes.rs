@@ -220,6 +220,41 @@ pub async fn upload_erp_file(
     Err((StatusCode::BAD_REQUEST, "No file field found in upload".to_string()))
 }
 
+#[derive(serde::Deserialize)]
+pub struct MappingEntry {
+    pub header: String,
+    pub canonical: Option<String>,
+}
+
+pub async fn confirm_mapping(
+    State(state): State<Arc<AppState>>,
+    Json(entries): Json<Vec<MappingEntry>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    std::fs::create_dir_all(&state.config_path)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let path = std::path::Path::new(&state.config_path).join("field_mapping.json");
+
+    let json_body: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| serde_json::json!({ "header": e.header, "canonical": e.canonical }))
+        .collect();
+
+    let pretty = serde_json::to_string_pretty(&json_body)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    std::fs::write(&path, &pretty)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    tracing::info!("Field mapping saved to {:?} ({} entries)", path, entries.len());
+
+    Ok(Json(serde_json::json!({
+        "status":  "ok",
+        "path":    path.to_string_lossy(),
+        "entries": entries.len(),
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,10 +273,11 @@ mod tests {
         )
     }
 
-    fn test_state(bronze_path: String) -> std::sync::Arc<crate::AppState> {
+    fn test_state(bronze_path: String, config_path: String) -> std::sync::Arc<crate::AppState> {
         std::sync::Arc::new(crate::AppState {
             gold_path: "/tmp".to_string(),
             bronze_path,
+            config_path,
             system_prompt: String::new(),
             ollama_url: "http://localhost:11434".to_string(),
             ollama_model: "test".to_string(),
@@ -255,7 +291,10 @@ mod tests {
 
         let app = Router::new()
             .route("/ingest/upload", post(upload_erp_file))
-            .with_state(test_state(bronze_dir.to_str().unwrap().to_string()));
+            .with_state(test_state(
+                bronze_dir.to_str().unwrap().to_string(),
+                "/tmp".to_string(),
+            ));
 
         let boundary = "testboundary9000";
         let csv = "VBELN,KUNNR,MATNR,UNKNOWN_COL\n001,C001,M001,foo\n";
@@ -300,5 +339,56 @@ mod tests {
         assert_eq!(mapping[3]["tier"],      "NoMatch");
 
         std::fs::remove_dir_all(&bronze_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn confirm_mapping_writes_config_file() {
+        let config_dir = std::env::temp_dir().join("optima_confirm_test");
+        std::fs::create_dir_all(&config_dir).unwrap();
+
+        let app = Router::new()
+            .route("/ingest/confirm-mapping", post(confirm_mapping))
+            .with_state(test_state(
+                "/tmp".to_string(),
+                config_dir.to_str().unwrap().to_string(),
+            ));
+
+        let payload = serde_json::json!([
+            { "header": "VBELN",         "canonical": "order_id" },
+            { "header": "KUNNR",         "canonical": "customer_id" },
+            { "header": "UNKNOWN_FIELD", "canonical": null },
+        ]);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/ingest/confirm-mapping")
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let body_bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(status, StatusCode::OK);
+
+        let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["status"],  "ok");
+        assert_eq!(json["entries"], 3);
+
+        // Config file exists and has the right contents.
+        let mapping_file = config_dir.join("field_mapping.json");
+        assert!(mapping_file.exists(), "field_mapping.json should exist");
+        let content = std::fs::read_to_string(&mapping_file).unwrap();
+        let written: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let arr = written.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0]["header"],    "VBELN");
+        assert_eq!(arr[0]["canonical"], "order_id");
+        assert_eq!(arr[1]["header"],    "KUNNR");
+        assert_eq!(arr[1]["canonical"], "customer_id");
+        assert_eq!(arr[2]["header"],    "UNKNOWN_FIELD");
+        assert_eq!(arr[2]["canonical"], serde_json::Value::Null);
+
+        std::fs::remove_dir_all(&config_dir).ok();
     }
 }
