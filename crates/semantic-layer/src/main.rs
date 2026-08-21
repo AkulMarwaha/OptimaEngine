@@ -47,6 +47,7 @@ pub struct AppState {
     pub system_prompt: String,
     pub ollama_url: String,
     pub ollama_model: String,
+    pub data_ready: bool,
 }
 
 #[tokio::main]
@@ -74,11 +75,22 @@ async fn main() {
         .unwrap_or_else(|_| "qwen2.5:1.5b".to_string());
 
     tracing::info!("Loading Gold context from {}", gold_path);
-    let gold_context = context::load_gold_context(&gold_path)
-        .expect("Failed to load Gold context — run the transformation pipeline first");
-    tracing::info!("Gold context loaded ({} bytes)", gold_context.len());
-
-    let system_prompt = SYSTEM_PROMPT_TEMPLATE.replace("{context}", &gold_context);
+    let (system_prompt, data_ready) = match context::load_gold_context(&gold_path)
+        .expect("Failed to read Gold context directory")
+    {
+        Some(ctx) => {
+            tracing::info!("Gold context loaded ({} bytes)", ctx.len());
+            (SYSTEM_PROMPT_TEMPLATE.replace("{context}", &ctx), true)
+        }
+        None => {
+            tracing::warn!(
+                "No Gold data at {} — agent will report 'no data connected' until the \
+                 transformation pipeline is run after confirming a field mapping",
+                gold_path
+            );
+            (String::new(), false)
+        }
+    };
 
     let model_name = ollama_model.clone();
     let state = Arc::new(AppState {
@@ -88,6 +100,7 @@ async fn main() {
         system_prompt,
         ollama_url,
         ollama_model,
+        data_ready,
     });
 
     let app = Router::new()

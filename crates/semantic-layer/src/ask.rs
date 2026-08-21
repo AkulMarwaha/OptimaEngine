@@ -69,6 +69,22 @@ pub async fn ask(
 ) -> Sse<impl futures::Stream<Item = Result<Event, anyhow::Error>>> {
     let (mut tx, rx) = mpsc::channel::<Result<Event, anyhow::Error>>(64);
 
+    if !state.data_ready {
+        tokio::spawn(async move {
+            let _ = tx.send(Ok(Event::default().data(
+                serde_json::json!({"type":"direct","t":"No ERP data has been connected yet. Upload an export to get started."}).to_string()
+            ))).await;
+            let _ = tx.send(Ok(Event::default().data(
+                serde_json::json!({"type":"done"}).to_string()
+            ))).await;
+        });
+        return Sse::new(rx).keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("keep-alive"),
+        );
+    }
+
     tokio::spawn(async move {
         let system = state.system_prompt.clone();
         let prompt = format!("Question: {}", body.question);

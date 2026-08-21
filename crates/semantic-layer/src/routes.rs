@@ -242,6 +242,7 @@ pub struct MappingEntry {
 #[derive(serde::Deserialize)]
 pub struct ConfirmMappingRequest {
     pub data_type: String,
+    pub filename: String,
     pub mapping: Vec<MappingEntry>,
 }
 
@@ -269,7 +270,11 @@ pub async fn confirm_mapping(
         .collect::<Vec<_>>()
         .into();
 
-    root.insert(body.data_type.clone(), mapping_array);
+    // Each data-type entry records the source filename so the pipeline can locate the file.
+    root.insert(body.data_type.clone(), serde_json::json!({
+        "file":    body.filename,
+        "mapping": mapping_array,
+    }));
 
     let pretty = serde_json::to_string_pretty(&serde_json::Value::Object(root))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -278,8 +283,8 @@ pub async fn confirm_mapping(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     tracing::info!(
-        "Field mapping saved: {} → {:?} ({} entries)",
-        body.data_type, path, body.mapping.len()
+        "Field mapping saved: {} ({}) → {:?} ({} entries)",
+        body.data_type, body.filename, path, body.mapping.len()
     );
 
     Ok(Json(serde_json::json!({
@@ -318,6 +323,7 @@ mod tests {
             system_prompt: String::new(),
             ollama_url: "http://localhost:11434".to_string(),
             ollama_model: "test".to_string(),
+            data_ready: true,
         })
     }
 
@@ -393,6 +399,7 @@ mod tests {
 
         let payload = serde_json::json!({
             "data_type": "sales_header",
+            "filename":  "sap_export.csv",
             "mapping": [
                 { "header": "VBELN",         "canonical": "order_id" },
                 { "header": "KUNNR",         "canonical": "customer_id" },
@@ -424,7 +431,9 @@ mod tests {
         let written: serde_json::Value = serde_json::from_str(&content).unwrap();
         let obj = written.as_object().expect("config root should be an object");
         assert!(obj.contains_key("sales_header"), "should have sales_header key");
-        let arr = obj["sales_header"].as_array().unwrap();
+        let entry = obj["sales_header"].as_object().expect("entry should be an object");
+        assert_eq!(entry["file"], "sap_export.csv");
+        let arr = entry["mapping"].as_array().unwrap();
         assert_eq!(arr.len(), 3);
         assert_eq!(arr[0]["header"],    "VBELN");
         assert_eq!(arr[0]["canonical"], "order_id");
@@ -434,5 +443,46 @@ mod tests {
         assert_eq!(arr[2]["canonical"], serde_json::Value::Null);
 
         std::fs::remove_dir_all(&config_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn ask_returns_no_data_message_when_not_ready() {
+        use crate::ask;
+
+        let state = std::sync::Arc::new(crate::AppState {
+            gold_path:     "/tmp".to_string(),
+            bronze_path:   "/tmp".to_string(),
+            config_path:   "/tmp".to_string(),
+            system_prompt: String::new(),
+            ollama_url:    "http://localhost:11434".to_string(),
+            ollama_model:  "test".to_string(),
+            data_ready:    false,
+        });
+
+        let app = Router::new()
+            .route("/ask", post(ask::ask))
+            .with_state(state);
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/ask")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"question":"what is our margin?"}"#))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body_str = String::from_utf8_lossy(&body_bytes);
+        assert!(
+            body_str.contains("No ERP data has been connected yet"),
+            "Expected no-data message in SSE body, got: {}",
+            body_str
+        );
+        assert!(
+            !body_str.contains("$") && !body_str.contains("margin_pct"),
+            "Response must not contain fabricated data: {}",
+            body_str
+        );
     }
 }

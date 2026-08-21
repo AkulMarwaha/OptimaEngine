@@ -15,6 +15,8 @@ fn main() -> anyhow::Result<()> {
 
     dotenv().ok();
 
+    let config_path = env::var("DATA_CONFIG_PATH")
+        .unwrap_or_else(|_| "./data/config".to_string());
     let bronze_path = env::var("BRONZE_DATA_PATH")
         .unwrap_or_else(|_| "./data/bronze".to_string());
     let silver_path = env::var("SILVER_DATA_PATH")
@@ -26,16 +28,22 @@ fn main() -> anyhow::Result<()> {
     let ollama_url = env::var("AI_AGENT_BASE_URL")
         .unwrap_or_else(|_| "http://localhost:11434".to_string());
 
-    // Bronze → Silver
-    bronze_to_silver::run(&bronze_path, &silver_path)?;
-    println!("\n🥈 Silver layer complete.");
+    // Bronze → Silver (mapping-driven path only)
+    let ran = bronze_to_silver::run_from_mapping(&config_path, &bronze_path, &silver_path)?;
+    if !ran {
+        println!("\nNo confirmed field mapping found at {}.", config_path);
+        println!("Upload and confirm an ERP export through the web UI to get started.");
+        return Ok(());
+    }
+
+    println!("\n Silver layer complete.");
     println!(" data/silver/sales_enriched.parquet");
     println!(" data/silver/controlling_enriched.parquet");
     println!(" data/silver/delivery_enriched.parquet");
 
     // Silver → Gold
     silver_to_gold::run(&silver_path, &gold_path)?;
-    println!("\n🥇 Gold layer complete.");
+    println!("\n Gold layer complete.");
     println!(" data/gold/margin_by_material.parquet");
     println!(" data/gold/margin_by_channel.parquet");
     println!(" data/gold/margin_by_sales_org.parquet");

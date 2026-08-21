@@ -2,7 +2,12 @@ use anyhow::Result;
 use polars::prelude::*;
 use std::io::Cursor;
 
-pub fn load_gold_context(gold_path: &str) -> Result<String> {
+pub fn load_gold_context(gold_path: &str) -> Result<Option<String>> {
+    let sentinel = format!("{}/margin_by_material.parquet", gold_path);
+    if !std::path::Path::new(&sentinel).exists() {
+        return Ok(None);
+    }
+
     let mut ctx = String::new();
 
     append_section(&mut ctx, gold_path, "margin_by_material.parquet",   "MARGIN BY MATERIAL")?;
@@ -12,7 +17,7 @@ pub fn load_gold_context(gold_path: &str) -> Result<String> {
     append_section(&mut ctx, gold_path, "margin_by_sales_org.parquet",  "MARGIN BY SALES ORG")?;
     append_section(&mut ctx, gold_path, "margin_by_segment.parquet",    "MARGIN BY SEGMENT")?;
 
-    Ok(ctx)
+    Ok(Some(ctx))
 }
 
 /// Budget section with pre-computed OVER / UNDER labels so the model doesn't need to infer signs.

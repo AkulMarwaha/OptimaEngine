@@ -56,7 +56,15 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "./data/gold".to_string());
 
     // Load all Gold context once at startup
-    let context = load_gold_context(&gold_path)?;
+    let context = match load_gold_context(&gold_path)? {
+        Some(ctx) => ctx,
+        None => {
+            println!("\nNo ERP data has been connected yet.");
+            println!("Upload and confirm an export through the web UI, then re-run the");
+            println!("transformation pipeline (cargo run -p transformation) to get started.\n");
+            return Ok(());
+        }
+    };
     let system_prompt = SYSTEM_PROMPT_TEMPLATE.replace("{context}", &context);
 
     let ollama = OllamaClient::new(&ollama_url, &ollama_model);

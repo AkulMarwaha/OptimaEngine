@@ -729,6 +729,7 @@ async function uploadFile() {
       statusEl.className   = 'upload-status success';
       statusEl.textContent = `✓ ${json.filename} saved (${size})`;
       fileInput.value = '';
+      currentUploadFilename = json.filename;
       if (json.mapping && json.mapping.length > 0) renderMapping(json.mapping);
     } else {
       statusEl.className   = 'upload-status error';
@@ -743,6 +744,8 @@ async function uploadFile() {
 }
 
 // ── Mapping review table ─────────────────────────────────────────────────────
+let currentUploadFilename = '';
+
 const CANONICAL_FIELDS = [
   'order_id', 'customer_id', 'material_id', 'net_value', 'estimated_cost',
   'currency', 'distribution_channel', 'sales_org', 'industry', 'region_group',
@@ -806,6 +809,7 @@ async function confirmMapping() {
 
   const body = {
     data_type: document.getElementById('dataType').value,
+    filename:  currentUploadFilename,
     mapping: Array.from(selects).map(sel => ({
       header:    sel.dataset.header,
       canonical: sel.value || null,
