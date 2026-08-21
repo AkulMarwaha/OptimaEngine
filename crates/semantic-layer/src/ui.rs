@@ -283,6 +283,19 @@ nav {
 }
 .upload-btn:hover { background: #0041cc; }
 .upload-btn:disabled { background: #93b4ff; cursor: not-allowed; }
+.data-type-select {
+  flex-shrink: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #111318;
+  background: #ffffff;
+  cursor: pointer;
+  outline: none;
+}
+.data-type-select:focus { border-color: #0052FF; }
 .upload-status {
   font-size: 13px;
   flex-shrink: 0;
@@ -414,6 +427,14 @@ footer {
 <div class="upload-strip">
   <label for="erpFile">Upload ERP export</label>
   <input id="erpFile" class="upload-file-input" type="file" accept=".csv,.xlsx,.xls">
+  <select id="dataType" class="data-type-select">
+    <option value="sales_header">Sales Header</option>
+    <option value="sales_items">Sales Items</option>
+    <option value="customer_master">Customer Master</option>
+    <option value="material_master">Material Master</option>
+    <option value="controlling">Controlling</option>
+    <option value="delivery">Delivery</option>
+  </select>
   <button class="upload-btn" id="uploadBtn" onclick="uploadFile()">Upload</button>
   <span id="uploadStatus" class="upload-status"></span>
 </div>
@@ -691,6 +712,7 @@ async function uploadFile() {
 
   const formData = new FormData();
   formData.append('file', fileInput.files[0]);
+  formData.append('data_type', document.getElementById('dataType').value);
 
   uploadBtn.disabled   = true;
   statusEl.className   = 'upload-status';
@@ -782,10 +804,13 @@ async function confirmMapping() {
   const confirmStatus = document.getElementById('confirmStatus');
   const selects       = document.querySelectorAll('.canonical-select');
 
-  const body = Array.from(selects).map(sel => ({
-    header:    sel.dataset.header,
-    canonical: sel.value || null,
-  }));
+  const body = {
+    data_type: document.getElementById('dataType').value,
+    mapping: Array.from(selects).map(sel => ({
+      header:    sel.dataset.header,
+      canonical: sel.value || null,
+    })),
+  };
 
   confirmBtn.disabled       = true;
   confirmStatus.className   = 'confirm-status';

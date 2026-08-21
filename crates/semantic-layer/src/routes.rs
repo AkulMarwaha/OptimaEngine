@@ -148,76 +148,89 @@ pub async fn upload_erp_file(
     State(state): State<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mut file_part: Option<(String, Vec<u8>)> = None;
+    let mut data_type: Option<String> = None;
+
     while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
     {
-        if field.name() != Some("file") {
-            continue;
+        match field.name() {
+            Some("data_type") => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+                data_type = Some(text);
+            }
+            Some("file") => {
+                let raw_name = field.file_name().unwrap_or("upload.csv").to_string();
+                let filename = std::path::Path::new(&raw_name)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("upload.csv")
+                    .to_string();
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+                file_part = Some((filename, bytes.to_vec()));
+            }
+            _ => {}
         }
-
-        let raw_name = field.file_name().unwrap_or("upload.csv").to_string();
-
-        // Strip any directory components to prevent path traversal.
-        let filename = std::path::Path::new(&raw_name)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("upload.csv")
-            .to_string();
-
-        let data = field
-            .bytes()
-            .await
-            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-        let byte_count = data.len();
-
-        // Save raw bytes to Bronze.
-        std::fs::create_dir_all(&state.bronze_path)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        let dest = std::path::Path::new(&state.bronze_path).join(&filename);
-        std::fs::write(&dest, &data)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-        // Extract headers and propose a field mapping.
-        let headers = extract_headers(&filename, &data)
-            .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
-        let header_refs: Vec<&str> = headers.iter().map(String::as_str).collect();
-        let matches = ingestion::field_matcher::match_headers(&header_refs);
-
-        let mapping: Vec<serde_json::Value> = headers
-            .iter()
-            .zip(matches.iter())
-            .map(|(header, m)| {
-                let tier = match m.tier {
-                    ingestion::field_matcher::MatchTier::Known     => "Known",
-                    ingestion::field_matcher::MatchTier::Heuristic => "Heuristic",
-                    ingestion::field_matcher::MatchTier::NoMatch   => "NoMatch",
-                };
-                serde_json::json!({
-                    "header":    header,
-                    "canonical": m.canonical,
-                    "tier":      tier,
-                })
-            })
-            .collect();
-
-        tracing::info!(
-            "Uploaded {} ({} bytes) → {:?} — {} headers, {} matched",
-            filename, byte_count, dest,
-            headers.len(),
-            matches.iter().filter(|m| m.canonical.is_some()).count(),
-        );
-
-        return Ok(Json(serde_json::json!({
-            "status":   "ok",
-            "filename": filename,
-            "bytes":    byte_count,
-            "mapping":  mapping,
-        })));
     }
 
-    Err((StatusCode::BAD_REQUEST, "No file field found in upload".to_string()))
+    let (filename, data) = file_part.ok_or_else(|| {
+        (StatusCode::BAD_REQUEST, "No file field found in upload".to_string())
+    })?;
+    let data_type = data_type.unwrap_or_else(|| "unknown".to_string());
+    let byte_count = data.len();
+
+    // Save raw bytes to Bronze.
+    std::fs::create_dir_all(&state.bronze_path)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let dest = std::path::Path::new(&state.bronze_path).join(&filename);
+    std::fs::write(&dest, &data)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Extract headers and propose a field mapping.
+    let headers = extract_headers(&filename, &data)
+        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e))?;
+    let header_refs: Vec<&str> = headers.iter().map(String::as_str).collect();
+    let matches = ingestion::field_matcher::match_headers(&header_refs);
+
+    let mapping: Vec<serde_json::Value> = headers
+        .iter()
+        .zip(matches.iter())
+        .map(|(header, m)| {
+            let tier = match m.tier {
+                ingestion::field_matcher::MatchTier::Known     => "Known",
+                ingestion::field_matcher::MatchTier::Heuristic => "Heuristic",
+                ingestion::field_matcher::MatchTier::NoMatch   => "NoMatch",
+            };
+            serde_json::json!({
+                "header":    header,
+                "canonical": m.canonical,
+                "tier":      tier,
+            })
+        })
+        .collect();
+
+    tracing::info!(
+        "Uploaded {} ({} bytes) [{}] → {:?} — {} headers, {} matched",
+        filename, byte_count, data_type, dest,
+        headers.len(),
+        matches.iter().filter(|m| m.canonical.is_some()).count(),
+    );
+
+    Ok(Json(serde_json::json!({
+        "status":    "ok",
+        "filename":  filename,
+        "bytes":     byte_count,
+        "data_type": data_type,
+        "mapping":   mapping,
+    })))
 }
 
 #[derive(serde::Deserialize)]
@@ -226,32 +239,54 @@ pub struct MappingEntry {
     pub canonical: Option<String>,
 }
 
+#[derive(serde::Deserialize)]
+pub struct ConfirmMappingRequest {
+    pub data_type: String,
+    pub mapping: Vec<MappingEntry>,
+}
+
 pub async fn confirm_mapping(
     State(state): State<Arc<AppState>>,
-    Json(entries): Json<Vec<MappingEntry>>,
+    Json(body): Json<ConfirmMappingRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     std::fs::create_dir_all(&state.config_path)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     let path = std::path::Path::new(&state.config_path).join("field_mapping.json");
 
-    let json_body: Vec<serde_json::Value> = entries
+    // Load existing config so other data-type keys are preserved.
+    let mut root: serde_json::Map<String, serde_json::Value> = if path.exists() {
+        let existing = std::fs::read_to_string(&path)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        serde_json::from_str(&existing).unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+
+    let mapping_array: serde_json::Value = body.mapping
         .iter()
         .map(|e| serde_json::json!({ "header": e.header, "canonical": e.canonical }))
-        .collect();
+        .collect::<Vec<_>>()
+        .into();
 
-    let pretty = serde_json::to_string_pretty(&json_body)
+    root.insert(body.data_type.clone(), mapping_array);
+
+    let pretty = serde_json::to_string_pretty(&serde_json::Value::Object(root))
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     std::fs::write(&path, &pretty)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    tracing::info!("Field mapping saved to {:?} ({} entries)", path, entries.len());
+    tracing::info!(
+        "Field mapping saved: {} → {:?} ({} entries)",
+        body.data_type, path, body.mapping.len()
+    );
 
     Ok(Json(serde_json::json!({
-        "status":  "ok",
-        "path":    path.to_string_lossy(),
-        "entries": entries.len(),
+        "status":    "ok",
+        "path":      path.to_string_lossy(),
+        "data_type": body.data_type,
+        "entries":   body.mapping.len(),
     })))
 }
 
@@ -266,10 +301,12 @@ mod tests {
     };
     use tower::ServiceExt;
 
-    fn make_multipart(boundary: &str, filename: &str, csv: &str) -> String {
+    fn make_multipart(boundary: &str, filename: &str, csv: &str, data_type: &str) -> String {
         format!(
-            "--{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{f}\"\r\nContent-Type: text/csv\r\n\r\n{c}\r\n--{b}--\r\n",
-            b = boundary, f = filename, c = csv,
+            "--{b}\r\nContent-Disposition: form-data; name=\"data_type\"\r\n\r\n{dt}\r\n\
+             --{b}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{f}\"\r\nContent-Type: text/csv\r\n\r\n{c}\r\n\
+             --{b}--\r\n",
+            b = boundary, dt = data_type, f = filename, c = csv,
         )
     }
 
@@ -298,7 +335,7 @@ mod tests {
 
         let boundary = "testboundary9000";
         let csv = "VBELN,KUNNR,MATNR,UNKNOWN_COL\n001,C001,M001,foo\n";
-        let body = make_multipart(boundary, "sap_export.csv", csv);
+        let body = make_multipart(boundary, "sap_export.csv", csv, "sales_header");
 
         let request = Request::builder()
             .method("POST")
@@ -317,8 +354,9 @@ mod tests {
         assert!(landed.exists(), "file should be in bronze dir");
         assert!(std::fs::read_to_string(&landed).unwrap().contains("VBELN"));
 
-        // Response contains the field mapping.
+        // Response contains the field mapping and data type.
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(json["data_type"], "sales_header");
         let mapping = json["mapping"].as_array().expect("mapping should be an array");
         assert_eq!(mapping.len(), 4);
 
@@ -353,11 +391,14 @@ mod tests {
                 config_dir.to_str().unwrap().to_string(),
             ));
 
-        let payload = serde_json::json!([
-            { "header": "VBELN",         "canonical": "order_id" },
-            { "header": "KUNNR",         "canonical": "customer_id" },
-            { "header": "UNKNOWN_FIELD", "canonical": null },
-        ]);
+        let payload = serde_json::json!({
+            "data_type": "sales_header",
+            "mapping": [
+                { "header": "VBELN",         "canonical": "order_id" },
+                { "header": "KUNNR",         "canonical": "customer_id" },
+                { "header": "UNKNOWN_FIELD", "canonical": null },
+            ]
+        });
 
         let request = Request::builder()
             .method("POST")
@@ -372,15 +413,18 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
 
         let json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-        assert_eq!(json["status"],  "ok");
-        assert_eq!(json["entries"], 3);
+        assert_eq!(json["status"],    "ok");
+        assert_eq!(json["data_type"], "sales_header");
+        assert_eq!(json["entries"],   3);
 
-        // Config file exists and has the right contents.
+        // Config file exists and is keyed by data type.
         let mapping_file = config_dir.join("field_mapping.json");
         assert!(mapping_file.exists(), "field_mapping.json should exist");
         let content = std::fs::read_to_string(&mapping_file).unwrap();
         let written: serde_json::Value = serde_json::from_str(&content).unwrap();
-        let arr = written.as_array().unwrap();
+        let obj = written.as_object().expect("config root should be an object");
+        assert!(obj.contains_key("sales_header"), "should have sales_header key");
+        let arr = obj["sales_header"].as_array().unwrap();
         assert_eq!(arr.len(), 3);
         assert_eq!(arr[0]["header"],    "VBELN");
         assert_eq!(arr[0]["canonical"], "order_id");
